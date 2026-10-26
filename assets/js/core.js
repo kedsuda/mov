@@ -200,6 +200,36 @@ window.Lumiere = (() => {
       </a>`;
   }
 
+  // ---------- ชื่อบริการบนป้าย "รับชมภายนอก" ----------
+  // ดึงช่องทางรับชมฟรี (free/ads) ของแต่ละเรื่องจาก TMDB แล้วเติมชื่อบริการลงบนป้าย เช่น "รับชมภายนอก · Plex"
+  const freeProviderCache = new Map(); // tmdb id → Promise<string>
+  function freeProviderOf(id) {
+    if (!freeProviderCache.has(id)) {
+      freeProviderCache.set(id, tmdb(`/movie/${id}/watch/providers`).then((d) => {
+        const r = d.results?.[settings.region];
+        return (r?.free?.[0] || r?.ads?.[0])?.provider_name || '';
+      }).catch(() => ''));
+    }
+    return freeProviderCache.get(id);
+  }
+
+  async function enrichExternal(root) {
+    if (!root || !settings.key) return;
+    const cards = [...root.querySelectorAll('.card')].filter((c) => c.querySelector('.badge.external') && !c.dataset.provider);
+    const queue = cards.slice();
+    const worker = async () => {
+      for (let card = queue.shift(); card; card = queue.shift()) {
+        const it = items.get(card.dataset.card);
+        if (!it || it.src !== 'tmdb') continue;
+        const name = await freeProviderOf(it.id);
+        card.dataset.provider = name || '-';
+        const badge = card.querySelector('.badge.external');
+        if (name && badge) badge.textContent = `รับชมภายนอก · ${name}`;
+      }
+    };
+    await Promise.all(Array.from({ length: 6 }, worker));
+  }
+
   // ---------- Toast ----------
   let toastTimer;
   function toast(msg) {
@@ -215,6 +245,6 @@ window.Lumiere = (() => {
     $, esc, store, first, stripHtml, debounce, ICON, settings,
     tmdb, normTmdb, pickTrailer, watchOptions, watchOptionsHtml, IMG,
     IA, ARCHIVE_MAX_YEAR, ARCHIVE_BLOCKED, archiveSearch, normArchive,
-    items, keyOf, remember, dedupe, watchMatch, watchHref, accessOf, BADGES, cardHtml, dateTh, toast
+    items, keyOf, remember, dedupe, watchMatch, watchHref, accessOf, BADGES, cardHtml, dateTh, toast, enrichExternal
   };
 })();

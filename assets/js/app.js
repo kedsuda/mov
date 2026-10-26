@@ -59,6 +59,7 @@
       track.innerHTML = items.map((it) => L.cardHtml(it, { isNew: markNew && !state.seen.has(L.keyOf(it)) })).join('');
       track.scrollLeft = scrollLeft;
       section.querySelector('.row-error')?.remove();
+      L.enrichExternal(track);
       return { ok: true, items };
     } catch (err) {
       if (err.auth) handleBadKey();

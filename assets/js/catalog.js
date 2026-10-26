@@ -30,7 +30,19 @@ window.Catalog = (() => {
       free: { q: 'collection:(animationandcartoons)', ids: () => openIds('anime') } },
     { id: 'scifi', label: 'ไซไฟ',
       tmdb: { path: '/discover/movie', params: () => ({ with_genres: 878, sort_by: 'popularity.desc' }) },
-      free: { q: `${FEATURES} AND subject:("science fiction" OR "sci-fi" OR scifi)`, ids: () => openIds('scifi') } }
+      free: { q: `${FEATURES} AND subject:("science fiction" OR "sci-fi" OR scifi)`, ids: () => openIds('scifi') } },
+    { id: 'noir', label: 'ฟิล์มนัวร์',
+      tmdb: { path: '/discover/movie', params: () => ({ with_genres: '80|9648', sort_by: 'popularity.desc' }) },
+      free: { q: `${FEATURES} AND subject:(noir OR "film noir" OR crime OR mystery OR detective)` } },
+    { id: 'western', label: 'คาวบอย',
+      tmdb: { path: '/discover/movie', params: () => ({ with_genres: 37, sort_by: 'popularity.desc' }) },
+      free: { q: `${FEATURES} AND subject:(western OR westerns OR cowboy)` } },
+    { id: 'drama', label: 'ดราม่า',
+      tmdb: { path: '/discover/movie', params: () => ({ with_genres: 18, sort_by: 'popularity.desc' }) },
+      free: { q: `${FEATURES} AND subject:(drama)` } },
+    { id: 'silent', label: 'หนังเงียบคลาสสิก',
+      tmdb: { path: '/discover/movie', params: () => ({ 'primary_release_date.lte': '1929-12-31', sort_by: 'vote_count.desc' }) },
+      free: { q: `${FEATURES} AND subject:(silent)` } }
   ];
 
   const hasKey = () => !!L.settings.key;
@@ -46,14 +58,16 @@ window.Catalog = (() => {
   };
   const latest = new Map(); // key → item (แถบเพิ่มเข้ามาล่าสุด)
   // ค่าเริ่มต้น = หนังที่ดูเต็มเรื่องได้บนเว็บนี้
-  const source = () => (state.source === 'tmdb' && hasKey() ? 'tmdb' : 'free');
+  // external = หนังที่ JustWatch ระบุว่าดูฟรีถูกกฎหมายได้ที่บริการอื่นในประเทศที่ตั้งค่าไว้
+  const source = () => ((state.source === 'tmdb' || state.source === 'external') && hasKey() ? state.source : 'free');
   const cat = () => CATS.find((c) => c.id === state.cat);
 
   // ---------- Fetch ----------
   async function fetchView(view) {
     const src = view.source;
     if (view.q) {
-      if (src === 'tmdb') {
+      // TMDB ค้นหากรองตามช่องทางรับชมไม่ได้ จึงใช้ผลค้นหาปกติ (หน้า watch จะบอกว่าดูเต็มเรื่องที่ไหนได้)
+      if (src === 'tmdb' || src === 'external') {
         const d = await L.tmdb('/search/multi', { query: view.q, page: view.page, include_adult: 'false' });
         return {
           items: d.results.filter((m) => m.media_type === 'movie' || m.media_type === 'tv').map((m) => L.normTmdb(m)),
@@ -65,6 +79,13 @@ window.Catalog = (() => {
       return L.archiveSearch({ q: `title:(${safe}) AND collection:(feature_films OR animationandcartoons)`, page: view.page, rows: PAGE_SIZE });
     }
     const c = CATS.find((x) => x.id === view.cat);
+    if (src === 'external') {
+      const d = await L.tmdb(c.tmdb.path, {
+        ...c.tmdb.params(), include_adult: 'false', page: view.page,
+        watch_region: L.settings.region, with_watch_monetization_types: 'free|ads'
+      });
+      return { items: d.results.map((m) => L.normTmdb(m, 'movie', 'external')), pages: Math.min(d.total_pages || 1, MAX_TMDB_PAGES), total: d.total_results };
+    }
     if (src === 'tmdb') {
       const d = await L.tmdb(c.tmdb.path, { ...c.tmdb.params(), include_adult: 'false', page: view.page });
       return { items: d.results.map((m) => L.normTmdb(m, 'movie')), pages: Math.min(d.total_pages || 1, MAX_TMDB_PAGES), total: d.total_results };
@@ -76,9 +97,11 @@ window.Catalog = (() => {
   function renderHead() {
     const src = source();
     $('#catalogTitle').textContent = state.q ? `ผลการค้นหา “${state.q}”` : cat().label;
-    $('#catalogSub').textContent = src === 'tmdb'
-      ? 'หนังใหม่จาก TMDB · กดโปสเตอร์เพื่อดูตัวอย่างและช่องทางรับชมเต็มเรื่องที่ถูกลิขสิทธิ์'
-      : 'ดูเต็มเรื่องบนเว็บนี้ · ภาพยนตร์สาธารณสมบัติและ Creative Commons ฟรี ไม่มีโฆษณา';
+    $('#catalogSub').textContent = {
+      tmdb: 'หนังใหม่จาก TMDB · กดโปสเตอร์เพื่อดูตัวอย่างและช่องทางรับชมเต็มเรื่องที่ถูกลิขสิทธิ์',
+      external: 'ดูเต็มเรื่องฟรีถูกกฎหมายที่บริการอื่น (ข้อมูล JustWatch) · ป้ายบนโปสเตอร์บอกชื่อบริการ',
+      free: 'ดูเต็มเรื่องบนเว็บนี้ · ภาพยนตร์สาธารณสมบัติและ Creative Commons ฟรี ไม่มีโฆษณา'
+    }[src];
     document.querySelectorAll('[data-cat]').forEach((b) => {
       const on = !state.q && b.dataset.cat === state.cat;
       b.classList.toggle('on', on);
@@ -88,7 +111,7 @@ window.Catalog = (() => {
       const on = b.dataset.source === src;
       b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', on);
-      if (b.dataset.source === 'tmdb') {
+      if (b.dataset.source === 'tmdb' || b.dataset.source === 'external') {
         b.disabled = !hasKey();
         b.title = hasKey() ? '' : 'ต้องใส่ TMDB API Key ก่อน';
       }
@@ -162,6 +185,7 @@ window.Catalog = (() => {
         : `<p class="empty">${view.q ? 'ไม่พบผลลัพธ์ ลองใช้ชื่อภาษาอังกฤษหรือคำค้นอื่น' : 'ยังไม่มีหนังในหมวดนี้'}</p>`;
       $('#catalogError').hidden = true;
       renderPager();
+      L.enrichExternal(grid);
       return true;
     } catch (err) {
       if (seq !== state.seq) return true;

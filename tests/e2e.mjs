@@ -71,6 +71,9 @@ const mockServer = http.createServer((req, res) => {
   mock.calls.push(u.pathname + u.search);
   if (u.searchParams.get('api_key') !== 'test-key') return send(401, { status_message: 'Invalid API key' });
   if (mock.fail) return send(500, { status_message: 'Mock failure' });
+  if (/^\/3\/movie\/\d+\/watch\/providers$/.test(u.pathname)) {
+    return send(200, { results: { TH: { link: 'https://www.themoviedb.org/movie/1/watch', free: [{ provider_id: 538, provider_name: 'Plex', logo_path: '/plex.svg' }] } } });
+  }
   const det = /^\/3\/(movie|tv)\/(\d+)$/.exec(u.pathname);
   if (det) return send(200, details(det[1], det[2]));
   if (u.pathname === '/3/search/multi') {
@@ -161,6 +164,32 @@ await test('hero features a full movie with "ดูเต็มเรื่อ�
   const h = JSON.parse(await ev(`JSON.stringify({ text: document.querySelector('#heroContent .btn-gold').textContent.trim(), href: document.querySelector('#heroContent .btn-gold').getAttribute('href') })`));
   assert(h.text === 'ดูเต็มเรื่อง' && /p=open/.test(h.href), JSON.stringify(h));
   return h.href;
+});
+
+for (const [cat, label] of [['noir', 'ฟิล์มนัวร์'], ['western', 'คาวบอย'], ['drama', 'ดราม่า'], ['silent', 'หนังเงียบคลาสสิก']]) {
+  await test(`new full-movie category "${label}" loads playable films`, async () => {
+    await ev(`document.querySelector('.cat-tabs [data-cat="${cat}"]').click()`);
+    assert(await waitFor(`document.querySelector('#catalogTitle').textContent === '${label}' && !document.querySelector('#catalogGrid[aria-busy]') && document.querySelectorAll('#catalogGrid .card').length > 0`, 40000), 'not loaded');
+    const r = JSON.parse(await ev(`JSON.stringify((() => { const c = [...document.querySelectorAll('#catalogGrid .card')]; return { n: c.length, full: c.filter(x => x.querySelector('.badge.full')).length, first: c[0].querySelector('.title').textContent }; })())`));
+    assert(r.n === r.full, JSON.stringify(r));
+    return `${r.n} films · ${r.first}`;
+  });
+}
+await test('"ดูฟรีที่บริการอื่น" tab lists free-elsewhere films with the service name on the badge', async () => {
+  mock.calls.length = 0;
+  await ev(`document.querySelector('.cat-tabs [data-cat="western"]').click()`);
+  await sleep(300);
+  await ev(`document.querySelector('[data-source="external"]').click()`);
+  assert(await waitFor(`document.querySelectorAll('#catalogGrid .card .badge.external').length > 0`), 'no external cards');
+  assert(mock.calls.some((c) => c.includes('with_watch_monetization_types=free%7Cads') && c.includes('watch_region=TH') && c.includes('with_genres=37')), 'discover not filtered by free|ads + region + genre');
+  assert(await waitFor(`[...document.querySelectorAll('#catalogGrid .badge.external')].every(b => b.textContent === 'รับชมภายนอก · Plex')`, 20000), 'provider name not on badges');
+  await ev(`document.querySelector('#pager [data-page="2"]').click()`);
+  assert(await waitFor(`document.querySelector('#pager .pg.on')?.textContent === '2' && !document.querySelector('#catalogGrid[aria-busy]') && document.querySelectorAll('#catalogGrid .badge.external').length > 0`), 'external page 2 failed');
+  await shot('external-tab');
+  return `${await ev(`document.querySelectorAll('#catalogGrid .card').length`)} cards on page 2`;
+});
+await test('"ดูฟรีถูกกฎหมายบนบริการอื่น" row shows the service name', async () => {
+  assert(await waitFor(`[...document.querySelectorAll('#row-external .badge.external')].some(b => b.textContent.includes('Plex'))`, 20000), 'row badges not enriched');
 });
 
 // ---------- Homepage: TMDB catalog ----------
