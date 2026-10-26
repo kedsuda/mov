@@ -22,13 +22,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Build (API key from repository secret)
+      - name: Unit tests
+        run: node tests/planner.test.mjs
+      - name: Build
         run: npm run build
-        env:
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-          TMDB_REGION: ${{ vars.TMDB_REGION }}
-          TMDB_LANGUAGE: ${{ vars.TMDB_LANGUAGE }}
-          REFRESH_MINUTES: ${{ vars.REFRESH_MINUTES }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

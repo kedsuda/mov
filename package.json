@@ -1,13 +1,14 @@
 {
-  "name": "moviehub-thailand",
-  "version": "2.0.0",
+  "name": "tiew-podee-ngob",
+  "version": "3.0.0",
   "private": true,
-  "description": "MovieHub Thailand: ad-free movie site with live TMDB data and free legal full-length films",
+  "description": "เที่ยวพอดีงบ: Thai budget trip planner with daily itineraries, cost breakdown and map",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs && node scripts/serve.mjs dist",
-    "test": "node tests/e2e.mjs"
+    "test": "node tests/planner.test.mjs && node tests/e2e.mjs",
+    "test:unit": "node tests/planner.test.mjs"
   },
   "engines": {
     "node": ">=20"

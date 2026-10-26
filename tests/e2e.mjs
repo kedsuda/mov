@@ -1,93 +1,24 @@
-// End-to-end tests: npm test
-// - build เว็บไปที่ .test-dist โดยชี้ TMDB ไปยังเซิร์ฟเวอร์จำลอง (ไม่ต้องใช้ API Key จริง)
-// - Internet Archive และการเล่นวิดีโอใช้ของจริง (ต้องต่ออินเทอร์เน็ต)
-// - ใช้ Edge/Chrome แบบ headless ผ่าน DevTools Protocol (กำหนดเองได้ด้วย BROWSER=/path/to/chrome)
+// End-to-end tests ของเว็บวางแผนเที่ยว: node tests/e2e.mjs
+// build เว็บไปที่ .test-dist แล้วทดสอบด้วย Edge/Chrome headless ผ่าน DevTools Protocol
+// (กำหนดเบราว์เซอร์เองได้ด้วย BROWSER=/path/to/chrome) · แผนที่ใช้ไทล์ OpenStreetMap จริง (ต้องต่ออินเทอร์เน็ต)
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '../scripts/serve.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(root, '.test-dist');
-const SHOTS = process.env.SHOTS_DIR || path.join(root, '.test-dist', '_shots');
-const SITE_PORT = 8765, MOCK_PORT = 8766, CDP_PORT = 9333;
+const SHOTS = process.env.SHOTS_DIR || path.join(OUT, '_shots');
+const SITE_PORT = 8765, CDP_PORT = 9333;
 const SITE = `http://127.0.0.1:${SITE_PORT}/`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// ---------- Build with mock TMDB ----------
-const build = spawnSync(process.execPath, [path.join(root, 'scripts/build.mjs')], {
-  encoding: 'utf8',
-  env: { ...process.env, OUT_DIR: '.test-dist', TMDB_API_KEY: 'test-key', REFRESH_MINUTES: '0.12',
-    TMDB_API_BASE: `http://127.0.0.1:${MOCK_PORT}/3`, TMDB_IMAGE_BASE: `http://127.0.0.1:${MOCK_PORT}/img/` }
-});
+const build = spawnSync(process.execPath, [path.join(root, 'scripts/build.mjs')], { encoding: 'utf8', env: { ...process.env, OUT_DIR: '.test-dist' } });
 if (build.status !== 0) { console.error(build.stdout, build.stderr); process.exit(1); }
 fs.mkdirSync(SHOTS, { recursive: true });
-
-// ---------- Mock TMDB ----------
-const mock = { fail: false, addNew: false, calls: [] };
-const SINTEL = { id: 45745, title: 'Sintel', original_title: 'Sintel', release_date: '2010-09-27' };
-const movie = (id, title, extra = {}) => ({
-  id, title, original_title: title, release_date: '2026-09-01', vote_average: 7.4,
-  poster_path: `/p${id}.svg`, backdrop_path: `/b${id}.svg`, overview: `เรื่องย่อของ ${title}`, ...extra
-});
-function listFor(u) {
-  const page = Number(u.searchParams.get('page') || 1);
-  const genre = u.searchParams.get('with_genres') || '0';
-  const base = (u.pathname.length * 7 + Number(genre)) * 1000 + page * 50;
-  const label = u.pathname.split('/').slice(2).join(' ') + (genre !== '0' ? ` g${genre}` : '');
-  const results = Array.from({ length: 20 }, (_, i) => movie(base + i, `Mock ${label} p${page} #${i + 1}`));
-  if (u.pathname === '/3/discover/movie' && genre === '0' && page === 1) {
-    results[1] = { ...results[0] };                       // รายการซ้ำ → ต้องถูกกรองออก
-    results[2] = movie(SINTEL.id, SINTEL.title, SINTEL);  // หนัง CC ที่มีวิดีโอเต็มเรื่อง
-    if (mock.addNew) results[19] = movie(999001, 'Brand New Arrival');
-  }
-  return { page, results, total_pages: 9, total_results: 180 };
-}
-function details(type, id) {
-  const isSintel = Number(id) === SINTEL.id;
-  return {
-    id: Number(id), ...(type === 'tv' ? { name: `Mock Series ${id}`, first_air_date: '2026-01-01', number_of_seasons: 2 } : { title: isSintel ? 'Sintel' : `Mock Movie ${id}`, original_title: isSintel ? 'Sintel' : `Mock Movie ${id}`, release_date: isSintel ? SINTEL.release_date : '2026-09-01', runtime: 101 }),
-    imdb_id: isSintel ? 'tt1727587' : `tt9${id}`, overview: `เรื่องย่อ ${id}`, vote_average: 7.4, tagline: 'Mock tagline',
-    genres: [{ id: 28, name: 'แอ็กชัน' }], poster_path: `/p${id}.svg`, backdrop_path: `/b${id}.svg`,
-    videos: { results: [{ site: 'YouTube', type: 'Trailer', official: true, key: `mockTrailer${id}` }] },
-    credits: { cast: [{ name: 'Actor One', character: 'Hero', profile_path: null }] },
-    external_ids: { imdb_id: isSintel ? 'tt1727587' : `tt9${id}` },
-    'watch/providers': { results: { TH: { link: `https://www.themoviedb.org/${type}/${id}/watch`,
-      free: [{ provider_id: 192, provider_name: 'YouTube', logo_path: '/youtube.svg' }],
-      flatrate: [{ provider_id: 8, provider_name: 'Netflix', logo_path: '/netflix.svg' }],
-      rent: [{ provider_id: 2, provider_name: 'Apple TV', logo_path: '/apple.svg' }] } } }
-  };
-}
-const mockServer = http.createServer((req, res) => {
-  const u = new URL(req.url, `http://127.0.0.1:${MOCK_PORT}`);
-  const send = (code, body, type = 'application/json') => {
-    res.writeHead(code, { 'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' });
-    res.end(typeof body === 'string' ? body : JSON.stringify(body));
-  };
-  if (req.method === 'OPTIONS') return send(204, '');
-  if (u.pathname.startsWith('/img/')) return send(200, `<svg xmlns="http://www.w3.org/2000/svg" width="342" height="513"><rect width="100%" height="100%" fill="#2a2418"/><text x="20" y="260" fill="#d4af37" font-size="28">${u.pathname.slice(-10)}</text></svg>`, 'image/svg+xml');
-  mock.calls.push(u.pathname + u.search);
-  if (u.searchParams.get('api_key') !== 'test-key') return send(401, { status_message: 'Invalid API key' });
-  if (mock.fail) return send(500, { status_message: 'Mock failure' });
-  if (/^\/3\/movie\/\d+\/watch\/providers$/.test(u.pathname)) {
-    return send(200, { results: { TH: { link: 'https://www.themoviedb.org/movie/1/watch', free: [{ provider_id: 538, provider_name: 'Plex', logo_path: '/plex.svg' }] } } });
-  }
-  const det = /^\/3\/(movie|tv)\/(\d+)$/.exec(u.pathname);
-  if (det) return send(200, details(det[1], det[2]));
-  if (u.pathname === '/3/search/multi') {
-    const q = u.searchParams.get('query');
-    const page = Number(u.searchParams.get('page') || 1);
-    return send(200, { page, total_pages: 3, total_results: 60, results: Array.from({ length: 20 }, (_, i) => ({ ...movie(700000 + page * 100 + i, `${q} result p${page} #${i + 1}`), media_type: 'movie' })) });
-  }
-  if (u.pathname.startsWith('/3/')) return send(200, listFor(u));
-  send(404, {});
-});
-await new Promise((r) => mockServer.listen(MOCK_PORT, r));
 const siteServer = await serve(OUT, SITE_PORT);
 
-// ---------- Browser ----------
 const candidates = [process.env.BROWSER,
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
@@ -96,8 +27,7 @@ const exe = candidates.find((p) => fs.existsSync(p));
 if (!exe) { console.error('No Chrome/Edge found. Set BROWSER=/path/to/chrome'); process.exit(1); }
 const profile = path.join(root, '.test-profile');
 fs.rmSync(profile, { recursive: true, force: true });
-const browser = spawn(exe, ['--headless=new', `--remote-debugging-port=${CDP_PORT}`, '--autoplay-policy=no-user-gesture-required',
-  '--mute-audio', `--user-data-dir=${profile}`, '--window-size=1440,1000', 'about:blank'], { stdio: 'ignore' });
+const browser = spawn(exe, ['--headless=new', `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${profile}`, '--window-size=1440,1000', 'about:blank'], { stdio: 'ignore' });
 
 let target;
 for (let i = 0; i < 40 && !target; i++) {
@@ -106,330 +36,221 @@ for (let i = 0; i < 40 && !target; i++) {
 }
 const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener('open', r));
-let seq = 0; const pending = new Map();
-ws.addEventListener('message', (e) => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
+let seq = 0; const pending = new Map(); const pageErrors = [];
+ws.addEventListener('message', (e) => {
+  const m = JSON.parse(e.data);
+  if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
+  if (m.method === 'Runtime.exceptionThrown') pageErrors.push(m.params.exceptionDetails.exception?.description?.split('\n')[0]);
+});
 const send = (method, params = {}) => new Promise((r) => { const id = ++seq; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
 const ev = async (expr) => {
   const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || 'eval error');
   return r.result?.result?.value;
 };
-const go = async (url) => { await send('Page.navigate', { url }); await sleep(1200); };
-const waitFor = async (expr, ms = 30000) => {
+const go = async (url) => { await send('Page.navigate', { url }); await sleep(900); };
+const waitFor = async (expr, ms = 15000) => {
   const t = Date.now();
-  while (Date.now() - t < ms) { try { const v = await ev(expr); if (v) return v; } catch { /* navigating */ } await sleep(400); }
+  while (Date.now() - t < ms) { try { const v = await ev(expr); if (v) return v; } catch { /* navigating */ } await sleep(250); }
   return null;
 };
+const click = (sel) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) throw new Error('not found: ' + ${JSON.stringify(sel)}); el.click(); return true; })()`);
 const shot = async (name) => { const r = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, `${name}.png`), Buffer.from(r.result.data, 'base64')); };
 await send('Page.enable'); await send('Runtime.enable');
 
 const results = [];
 async function test(name, fn) {
-  try {
-    const info = await fn();
-    results.push({ ok: true, name, info });
-    console.log(`PASS  ${name}${info ? '  ' + info : ''}`);
-  } catch (err) {
-    results.push({ ok: false, name, info: err.message });
-    console.log(`FAIL  ${name}  ${err.message}`);
-  }
+  try { const info = await fn(); results.push({ ok: true }); console.log(`PASS  ${name}${info ? '  ' + info : ''}`); }
+  catch (err) { results.push({ ok: false }); console.log(`FAIL  ${name}  ${err.message}`); }
 }
-const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
-const gridState = `JSON.stringify((() => { const cards = [...document.querySelectorAll('#catalogGrid .card')]; const keys = cards.map(c => c.dataset.card); return { n: cards.length, unique: new Set(keys).size, first: cards[0]?.querySelector('.title')?.textContent, title: document.querySelector('#catalogTitle').textContent, pager: document.querySelector('#pager .pg.on')?.textContent || '' }; })())`;
-const grid = async () => JSON.parse(await ev(gridState));
-const playing = (min = 2) => `(() => { const p = document.querySelector('#player'); return !!p && p.dataset.state === 'playing' && Number(p.dataset.time) > ${min}; })()`;
+const assert = (c, m) => { if (!c) throw new Error(m); };
+const total = () => ev(`Number(document.querySelector('#totalSpent').textContent.replace(/[^\\d]/g, ''))`);
 
-// ---------- Homepage: full movies first ----------
 await go(SITE);
-await test('site name is "MovieHub Thailand" (no blank titles)', async () => {
-  const t = JSON.parse(await ev(`JSON.stringify({ title: document.title, brand: [...document.querySelectorAll('.brand-name')].map(b => b.textContent.trim()), tag: document.querySelector('.brand-tag')?.textContent })`));
-  assert(t.title.startsWith('MovieHub Thailand') && t.brand.every((b) => b === 'MovieHub') && t.tag === 'Thailand', JSON.stringify(t));
-  return t.title;
-});
-await test('catalog defaults to playable full movies with "ดูเต็มเรื่อง" badges', async () => {
-  assert(await waitFor(`document.querySelectorAll('#catalogGrid .card').length > 0 && !document.querySelector('#catalogGrid[aria-busy]')`, 40000), 'grid empty');
-  assert(await ev(`document.querySelector('[data-source="free"]').classList.contains('on')`), 'default source is not free');
-  const r = JSON.parse(await ev(`JSON.stringify((() => { const c = [...document.querySelectorAll('#catalogGrid .card')]; return { n: c.length, full: c.filter(x => x.querySelector('.badge.full')?.textContent === 'ดูเต็มเรื่อง').length, playable: c.filter(x => /p=(archive|open)/.test(x.getAttribute('href'))).length }; })())`));
-  assert(r.n === r.full && r.n === r.playable, JSON.stringify(r));
-  return `${r.n}/${r.n} full-movie cards`;
-});
-await test('rows: full movies first, then free-elsewhere (รับชมภายนอก), then trailers', async () => {
-  const order = await ev(`[...document.querySelectorAll('#rows .row')].map(r => r.id.replace('row-', '')).join(',')`);
-  assert(order.startsWith('open,free,external,trending'), order);
-  assert(await waitFor(`document.querySelectorAll('#row-external .card .badge.external').length > 0 && document.querySelectorAll('#row-trending .card .badge.trailer').length > 0`, 30000), 'badges missing');
-  return order;
-});
-await test('hero features a full movie with "ดูเต็มเรื่อง" button', async () => {
-  assert(await waitFor(`!!document.querySelector('#heroContent .btn-gold')`), 'no hero');
-  const h = JSON.parse(await ev(`JSON.stringify({ text: document.querySelector('#heroContent .btn-gold').textContent.trim(), href: document.querySelector('#heroContent .btn-gold').getAttribute('href') })`));
-  assert(h.text === 'ดูเต็มเรื่อง' && /p=open/.test(h.href), JSON.stringify(h));
-  return h.href;
-});
+await ev('localStorage.clear()');
+await go(SITE + '#/');
 
-for (const [cat, label] of [['noir', 'ฟิล์มนัวร์'], ['western', 'คาวบอย'], ['drama', 'ดราม่า'], ['silent', 'หนังเงียบคลาสสิก']]) {
-  await test(`new full-movie category "${label}" loads playable films`, async () => {
-    await ev(`document.querySelector('.cat-tabs [data-cat="${cat}"]').click()`);
-    assert(await waitFor(`document.querySelector('#catalogTitle').textContent === '${label}' && !document.querySelector('#catalogGrid[aria-busy]') && document.querySelectorAll('#catalogGrid .card').length > 0`, 40000), 'not loaded');
-    const r = JSON.parse(await ev(`JSON.stringify((() => { const c = [...document.querySelectorAll('#catalogGrid .card')]; return { n: c.length, full: c.filter(x => x.querySelector('.badge.full')).length, first: c[0].querySelector('.title').textContent }; })())`));
-    assert(r.n === r.full, JSON.stringify(r));
-    return `${r.n} films · ${r.first}`;
-  });
-}
-await test('"ดูฟรีที่บริการอื่น" tab lists free-elsewhere films with the service name on the badge', async () => {
-  mock.calls.length = 0;
-  await ev(`document.querySelector('.cat-tabs [data-cat="western"]').click()`);
-  await sleep(300);
-  await ev(`document.querySelector('[data-source="external"]').click()`);
-  assert(await waitFor(`document.querySelectorAll('#catalogGrid .card .badge.external').length > 0`), 'no external cards');
-  assert(mock.calls.some((c) => c.includes('with_watch_monetization_types=free%7Cads') && c.includes('watch_region=TH') && c.includes('with_genres=37')), 'discover not filtered by free|ads + region + genre');
-  assert(await waitFor(`[...document.querySelectorAll('#catalogGrid .badge.external')].every(b => b.textContent === 'รับชมภายนอก · Plex')`, 20000), 'provider name not on badges');
-  await ev(`document.querySelector('#pager [data-page="2"]').click()`);
-  assert(await waitFor(`document.querySelector('#pager .pg.on')?.textContent === '2' && !document.querySelector('#catalogGrid[aria-busy]') && document.querySelectorAll('#catalogGrid .badge.external').length > 0`), 'external page 2 failed');
-  await shot('external-tab');
-  return `${await ev(`document.querySelectorAll('#catalogGrid .card').length`)} cards on page 2`;
+// ---------- หน้าหลัก ----------
+await test('home page renders the planner form with 12 provinces', async () => {
+  assert(await waitFor(`document.querySelectorAll('[data-prov]').length === 12`), 'provinces missing');
+  assert(await ev(`document.title.includes('เที่ยวพอดีงบ')`), 'title');
+  return await ev(`document.querySelector('.hero h1').textContent.trim()`);
 });
-await test('"ดูฟรีถูกกฎหมายบนบริการอื่น" row shows the service name', async () => {
-  assert(await waitFor(`[...document.querySelectorAll('#row-external .badge.external')].some(b => b.textContent.includes('Plex'))`, 20000), 'row badges not enriched');
+await test('no movie-site leftovers on the page', async () => {
+  const html = await ev('document.documentElement.outerHTML');
+  assert(!/MovieHub|TMDB|ดูหนัง|watch\.html|LUMI/i.test(html), 'movie text found');
 });
+await test('form inputs: province, budget, days, people, styles, travel toggle', async () => {
+  await click('[data-prov="phuket"]');
+  await ev(`(() => { const i = document.querySelector('#budget'); i.value = '12000'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await click('[data-step="days:-1"]');
+  await click('[data-step="people:1"]');
+  await click('[data-style="cafe"]'); // ปิดคาเฟ่ (ค่าเริ่มต้นเปิด)
+  await click('[data-style="beach"]');
+  await ev(`(() => { const t = document.querySelector('#includeTravel'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const s = JSON.parse(await ev(`JSON.stringify({ prov: document.querySelector('[data-prov="phuket"]').getAttribute('aria-pressed'), budget: document.querySelector('#budget').value, days: document.querySelector('#daysOut').textContent, people: document.querySelector('#peopleOut').textContent, beach: document.querySelector('[data-style="beach"]').getAttribute('aria-pressed'), est: document.querySelector('#estimate').textContent.trim() })`));
+  assert(s.prov === 'true' && s.budget === '12,000' && s.days.startsWith('2') && s.people.startsWith('3') && s.beach === 'true', JSON.stringify(s));
+  assert(/ระดับ|ไม่พอ/.test(s.est), 'no live estimate');
+  return s.est.replace(/\s+/g, ' ');
+});
+await test('Bangkok disables the travel-from-Bangkok toggle', async () => {
+  await click('[data-prov="bangkok"]');
+  assert(await ev(`document.querySelector('#includeTravel').disabled`), 'not disabled');
+  await click('[data-prov="phuket"]');
+});
+await test('empty budget shows a validation error', async () => {
+  await ev(`(() => { const i = document.querySelector('#budget'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await click('#planner button[type=submit]');
+  assert(await waitFor(`!document.querySelector('#formError').hidden`), 'no error');
+  await ev(`(() => { const i = document.querySelector('#budget'); i.value = '12000'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+});
+await shot('home');
 
-// ---------- Homepage: TMDB catalog ----------
-await go(SITE + '?src=tmdb');
-await test('catalog grid renders TMDB posters ("หนังใหม่")', async () => {
-  assert(await waitFor(`document.querySelectorAll('#catalogGrid .card').length > 0`), 'grid empty');
-  const g = await grid();
-  assert(g.title === 'หนังใหม่', 'title ' + g.title);
-  return `${g.n} cards`;
+// ---------- ผลลัพธ์ ----------
+await test('generating a plan opens the results page', async () => {
+  await click('#planner button[type=submit]');
+  assert(await waitFor(`location.hash.startsWith('#/plan/') && document.querySelectorAll('.day').length === 2`), 'no plan');
+  const s = JSON.parse(await ev(`JSON.stringify({ title: document.querySelector('#planTitle').textContent, places: document.querySelectorAll('.item').length, trip: [...document.querySelectorAll('.item-name')].some(n => n.textContent.includes('เดินทางจากกรุงเทพฯ')) })`));
+  assert(s.title.includes('ภูเก็ต') && s.places > 6 && s.trip, JSON.stringify(s));
+  return `${s.title} · ${s.places} items`;
 });
-await test('duplicates from API are removed', async () => {
-  const g = await grid();
-  assert(g.n === g.unique && g.n === 19, `cards=${g.n} unique=${g.unique} (mock sent 20 with 1 duplicate)`);
-  return `${g.n} unique of 20 returned`;
+await test('cost breakdown, total and remaining are shown and consistent', async () => {
+  const s = JSON.parse(await ev(`JSON.stringify({ total: document.querySelector('#totalSpent').textContent, remain: document.querySelector('#remaining').textContent, cats: [...document.querySelectorAll('[data-cat-total]')].map(c => c.querySelector('b').textContent), sumItems: [...document.querySelectorAll('.item-cost')].reduce((a, c) => a + (Number(c.childNodes[0].textContent.replace(/[^\\d]/g, '')) || 0), 0) })`));
+  const n = (x) => Number(x.replace(/[^\d]/g, ''));
+  assert(s.cats.length === 4, 'missing categories');
+  assert(n(s.total) === s.cats.reduce((a, c) => a + n(c), 0), 'categories ≠ total');
+  assert(n(s.total) === s.sumItems, `items ${s.sumItems} ≠ total ${n(s.total)}`);
+  assert(n(s.total) + n(s.remain) === 12000 || n(s.total) - n(s.remain) === 12000, 'remaining wrong');
+  return `${s.total} + ${s.remain} · ${s.cats.join(' / ')}`;
 });
-await test('poster shows title, year and rating', async () => {
-  const sub = await ev(`document.querySelector('#catalogGrid .card .sub').textContent`);
-  assert(/2026/.test(sub) && /★/.test(sub), 'sub=' + sub);
-  return sub.trim();
+await test('estimates are labelled as estimates (not live data)', async () => {
+  assert(await ev(`document.querySelectorAll('.est-tag').length >= 2 && document.querySelector('.disclaimer').textContent.includes('ค่าประมาณ')`), 'no estimate labels');
 });
-await shot('home-desktop');
-
-for (const [cat, label, genre] of [['action', 'แอ็กชัน', '28'], ['comedy', 'ตลก', '35'], ['horror', 'สยองขวัญ', '27'], ['anime', 'อนิเมะ', '16'], ['scifi', 'ไซไฟ', '878']]) {
-  await test(`category tab "${label}" loads its genre`, async () => {
-    mock.calls.length = 0;
-    await ev(`document.querySelector('.cat-tabs [data-cat="${cat}"]').click()`);
-    assert(await waitFor(`document.querySelector('#catalogTitle').textContent === '${label}' && document.querySelectorAll('#catalogGrid .card').length > 0`), 'not loaded');
-    assert(mock.calls.some((c) => c.includes(`with_genres=${genre}`)), 'no request with genre ' + genre);
-    if (cat === 'anime') assert(mock.calls.some((c) => c.includes('with_original_language=ja')), 'anime not ja');
-    return (await grid()).n + ' cards';
-  });
-}
-
-await test('pagination: page 2 loads different movies and updates URL', async () => {
-  const before = (await grid()).first;
-  await ev(`document.querySelector('#pager [data-page="2"]').click()`);
-  assert(await waitFor(`document.querySelector('#pager .pg.on')?.textContent === '2' && !document.querySelector('#catalogGrid[aria-busy]')`), 'page 2 not active');
-  const g = await grid();
-  assert(g.first !== before && /p2/.test(g.first), `first=${g.first}`);
-  const qs = await ev('location.search');
-  assert(/page=2/.test(qs), 'url ' + qs);
-  return `${g.first} · ${qs}`;
-});
-
-await test('source switch "ดูฟรีเต็มเรื่อง" loads real Internet Archive films', async () => {
-  await ev(`document.querySelector('.cat-tabs [data-cat="horror"]').click()`);
-  await sleep(300);
-  await ev(`document.querySelector('[data-source="free"]').click()`);
-  assert(await waitFor(`[...document.querySelectorAll('#catalogGrid .card')].length > 5 && [...document.querySelectorAll('#catalogGrid .card')].every(c => /p=(archive|open)/.test(c.getAttribute('href')))`, 40000), 'archive grid not loaded');
-  return (await grid()).n + ' playable cards';
-});
-
-await test('free pagination works (Archive page 2)', async () => {
-  const before = (await grid()).first;
-  await ev(`document.querySelector('#pager [data-page="2"]').click()`);
-  assert(await waitFor(`document.querySelector('#pager .pg.on')?.textContent === '2' && !document.querySelector('#catalogGrid[aria-busy]') && document.querySelectorAll('#catalogGrid .card').length > 0`, 40000), 'no page 2');
-  const g = await grid();
-  assert(g.first !== before, 'same first item');
-  return `${before} → ${g.first}`;
-});
-
-// ---------- Latest strip ----------
-await test('"เพิ่มเข้ามาล่าสุด" is sorted by date added (newest first)', async () => {
-  assert(await waitFor(`document.querySelectorAll('#latestTrack .card').length > 5`, 40000), 'latest empty');
-  const dates = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#latestTrack .card')].map(c => Lumiere.items.get(c.dataset.card).added))`));
-  const sorted = [...dates].sort().reverse();
-  assert(JSON.stringify(dates) === JSON.stringify(sorted), 'not sorted');
-  const keys = await ev(`(() => { const k = [...document.querySelectorAll('#latestTrack .card')].map(c => c.dataset.card); return k.length === new Set(k).size; })()`);
-  assert(keys, 'duplicates in latest');
-  return `${dates.length} items, newest ${dates[0].slice(0, 10)}`;
-});
-
-// ---------- Search ----------
-await test('search (TMDB) shows results with pagination', async () => {
-  await ev(`document.querySelector('[data-source="tmdb"]').click()`);
-  await ev(`(() => { const i = document.querySelector('#searchInput'); i.value = 'batman'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-  assert(await waitFor(`document.querySelector('#catalogTitle').textContent.includes('batman') && document.querySelectorAll('#catalogGrid .card').length === 20`), 'no search results');
-  assert(await ev(`getComputedStyle(document.querySelector('#hero')).display === 'none'`), 'hero not hidden while searching');
-  await ev(`document.querySelector('#pager [data-page="2"]').click()`);
-  assert(await waitFor(`document.querySelector('#catalogGrid .card .title')?.textContent.includes('p2')`), 'search page 2 failed');
-  return 'page 2 ok';
-});
-await test('search (free films) finds real Archive titles', async () => {
-  await ev(`(() => { const i = document.querySelector('#searchInput'); i.value = 'chaplin'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-  await sleep(700);
-  await ev(`document.querySelector('[data-source="free"]').click()`);
-  assert(await waitFor(`document.querySelector('#catalogTitle').textContent.includes('chaplin') && document.querySelectorAll('#catalogGrid .card').length > 0 && !document.querySelector('#catalogGrid[aria-busy]')`, 40000), 'no archive search results');
-  const t = await ev(`document.querySelector('#catalogGrid .card .title').textContent`);
+await test('travel time and distance shown between places', async () => {
+  const t = await ev(`document.querySelector('.travel')?.textContent.trim()`);
+  assert(/กม\..*นาที|นาที/.test(t || ''), t);
   return t;
 });
-await shot('search');
-await test('clear search restores homepage', async () => {
-  await ev(`document.querySelector('#clearSearch').click()`);
-  assert(await waitFor(`!document.body.classList.contains('searching') && getComputedStyle(document.querySelector('#hero')).display !== 'none'`), 'not restored');
-});
-
-// ---------- Errors ----------
-await test('loading failure shows a clear error with retry', async () => {
-  await ev(`document.querySelector('[data-source="tmdb"]').click()`);
-  await waitFor(`!document.querySelector('#catalogGrid[aria-busy]')`);
-  mock.fail = true;
-  await ev(`document.querySelector('.cat-tabs [data-cat="comedy"]').click()`);
-  assert(await waitFor(`!document.querySelector('#catalogError').hidden`), 'no error box');
-  const msg = await ev(`document.querySelector('#catalogError').textContent.replace(/\\s+/g, ' ').trim()`);
-  await shot('catalog-error');
-  mock.fail = false;
-  await ev(`document.querySelector('[data-catalog-retry]').click()`);
-  assert(await waitFor(`document.querySelector('#catalogError').hidden && document.querySelectorAll('#catalogGrid .card').length > 0`), 'retry did not recover');
-  return msg;
-});
-
-// ---------- Auto refresh ----------
-await test('auto refresh adds new movies without duplicates (NEW badge)', async () => {
-  await ev(`document.querySelector('.cat-tabs [data-cat="new"]').click()`);
-  await waitFor(`document.querySelector('#catalogTitle').textContent === 'หนังใหม่' && document.querySelectorAll('#catalogGrid .card').length > 0`);
-  const before = await grid();
-  mock.addNew = true;
-  assert(await waitFor(`[...document.querySelectorAll('#catalogGrid .card .title')].some(t => t.textContent === 'Brand New Arrival')`, 30000), 'new movie never appeared');
-  const g = await grid();
-  const count = await ev(`[...document.querySelectorAll('#catalogGrid .card .title')].filter(t => t.textContent === 'Brand New Arrival').length`);
-  const badge = await ev(`[...document.querySelectorAll('#catalogGrid .card')].find(c => c.querySelector('.title').textContent === 'Brand New Arrival').querySelector('.badge.new') !== null`);
-  assert(count === 1 && g.n === g.unique, `count=${count} n=${g.n} unique=${g.unique}`);
-  assert(badge, 'no NEW badge');
-  return `before ${before.n}, after ${g.n} unique`;
-});
-await test('failed auto refresh keeps existing posters and shows status', async () => {
-  mock.fail = true;
-  assert(await waitFor(`document.querySelector('#liveStatus').classList.contains('error')`, 30000), 'status not updated');
-  const n = (await grid()).n;
-  assert(n > 0, 'grid emptied');
-  const toast = await ev(`document.querySelector('#toast').textContent`);
-  mock.fail = false;
-  assert(await waitFor(`!document.querySelector('#liveStatus').classList.contains('error')`, 30000), 'did not recover');
-  return `${n} posters kept · "${toast}"`;
-});
-
-// ---------- Poster → watch.html ----------
-await test('TMDB poster opens watch.html with trailer + legal services', async () => {
-  const href = await ev(`[...document.querySelectorAll('#catalogGrid .card')].find(c => !/Sintel|Brand/.test(c.textContent)).getAttribute('href')`);
-  assert(/^watch\.html\?p=tmdb&id=movie-\d+$/.test(href), 'href ' + href);
-  await ev(`[...document.querySelectorAll('#catalogGrid .card')].find(c => !/Sintel|Brand/.test(c.textContent)).click()`);
-  assert(await waitFor(`location.pathname.endsWith('watch.html') && document.querySelector('#player').dataset.state === 'trailer'`), 'no trailer state');
-  const src = await ev(`document.querySelector('#player iframe').src`);
-  assert(src.startsWith('https://www.youtube-nocookie.com/embed/mockTrailer'), src);
-  const providers = await ev(`[...document.querySelectorAll('#watchOptions .provider')].map(p => p.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')`);
-  assert(/Netflix/.test(providers), 'providers ' + providers);
-  assert(await ev(`!!document.querySelector('#previewNote')`), 'no preview note');
-  const cta = JSON.parse(await ev(`JSON.stringify({ text: document.querySelector('#externalCta')?.textContent.trim(), href: document.querySelector('#externalCta')?.getAttribute('href'), access: document.querySelector('#watchInfo').dataset.access, badge: document.querySelector('#previewNote .badge.external')?.textContent })`));
-  assert(cta.access === 'external' && cta.badge === 'รับชมภายนอก' && /YouTube/.test(cta.text) && /themoviedb\.org\/movie\/\d+\/watch/.test(cta.href), JSON.stringify(cta));
-  await shot('watch-trailer');
-  return `${providers} · CTA "${cta.text}"`;
-});
-await test('TMDB poster of a CC film links straight to the full movie and plays', async () => {
-  await go(SITE + '?src=tmdb');
-  assert(await waitFor(`[...document.querySelectorAll('#catalogGrid .card')].some(c => c.textContent.includes('Sintel'))`), 'Sintel not in grid');
-  await ev(`[...document.querySelectorAll('#catalogGrid .card')].find(c => c.textContent.includes('Sintel')).click()`);
-  assert(await waitFor(playing(2), 60000), 'did not play');
-  return await ev('location.search');
-});
-await test('free poster opens watch.html and the film plays', async () => {
-  await go(SITE + '?src=free&cat=comedy');
-  assert(await waitFor(`document.querySelectorAll('#catalogGrid .card').length > 0`, 40000), 'no free grid');
-  const href = await ev(`document.querySelector('#catalogGrid .card').getAttribute('href')`);
-  await ev(`document.querySelector('#catalogGrid .card').click()`);
-  assert(await waitFor(playing(2), 60000), 'did not play: ' + await ev(`JSON.stringify(document.querySelector('#player')?.dataset)`));
-  await shot('watch-playing');
-  return href;
-});
-await test('keyboard: Space pauses/plays, F toggles fullscreen request', async () => {
-  const key = (k) => ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true }))`);
-  await key(' ');
-  assert(await waitFor(`document.querySelector('#player video').paused`, 5000), 'space did not pause');
-  await key(' ');
-  assert(await waitFor(`!document.querySelector('#player video').paused`, 10000), 'space did not resume');
-  const t0 = await ev(`document.querySelector('#player video').currentTime`);
-  await key('ArrowRight');
-  const t1 = await ev(`document.querySelector('#player video').currentTime`);
-  assert(t1 - t0 >= 9, `seek ${t0}→${t1}`);
-  return `seek ${t0.toFixed(1)}s → ${t1.toFixed(1)}s`;
-});
-await test('subtitles load from Archive .srt (Cosmos Laundromat) and display', async () => {
-  await go(SITE + 'watch.html?p=open&id=CosmosLaundromatFirstCycle');
-  assert(await waitFor(`Number(document.querySelector('#player').dataset.subtitles) > 0`, 60000), 'no subtitle tracks');
-  const labels = await ev(`[...document.querySelector('#player video').textTracks].map(t => t.label).join(', ')`);
-  await ev(`document.querySelector('#subsBar [data-sub="0"]').click()`);
-  assert(await waitFor(`(() => { const t = document.querySelector('#player video').textTracks[0]; return t.mode === 'showing' && t.cues && t.cues.length > 0; })()`, 20000), 'cues not loaded');
-  const cues = await ev(`document.querySelector('#player video').textTracks[0].cues.length`);
-  await waitFor(playing(1), 60000);
-  await shot('watch-subtitles');
-  return `${labels} · ${cues} cues`;
-});
-await test('hero "รายละเอียด" still opens the detail modal', async () => {
-  await go(SITE);
-  assert(await waitFor(`!!document.querySelector('#heroContent [data-key]')`), 'no hero');
-  await ev(`document.querySelector('#heroContent [data-key]').click()`);
-  assert(await waitFor(`!document.querySelector('#modal').hidden && !!document.querySelector('#modalTitle')`), 'modal not opened');
-  await ev(`document.querySelector('#modal .modal-close').click()`);
-});
-await test('highlight rows still render', async () => {
-  const n = await ev(`document.querySelectorAll('#rows .row').length`);
-  const filled = await waitFor(`document.querySelectorAll('#row-trending .card').length > 0 && document.querySelectorAll('#row-free .card').length > 0`, 40000);
-  assert(filled, 'rows empty');
-  return `${n} rows`;
-});
-
-// ---------- Watch page errors / license gate ----------
-await test('unknown provider shows an error', async () => {
-  await go(SITE + 'watch.html?p=nope&id=x');
-  assert(await waitFor(`document.querySelector('#player').dataset.state === 'error'`, 10000), 'no error');
-});
-await test('archive refuses items not marked public domain', async () => {
-  await go(SITE + 'watch.html?p=archive&id=CosmosLaundromatFirstCycle');
-  assert(await waitFor(`document.querySelector('#player').dataset.state === 'error'`, 30000), 'no error');
-  return await ev(`document.querySelector('.player-msg p').textContent`);
-});
-
-// ---------- Mobile ----------
-await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
-await test('mobile homepage: 3-column grid, no horizontal overflow', async () => {
-  await go(SITE);
-  assert(await waitFor(`document.querySelectorAll('#catalogGrid .card').length > 0`), 'no grid');
-  const m = JSON.parse(await ev(`JSON.stringify({ cols: getComputedStyle(document.querySelector('#catalogGrid')).gridTemplateColumns.split(' ').length, w: document.documentElement.scrollWidth })`));
-  assert(m.cols === 3 && m.w <= 390, JSON.stringify(m));
-  await ev(`document.querySelector('#latest').scrollIntoView()`);
-  await sleep(800);
-  await shot('home-mobile');
+await test('map shows numbered pins, hotel, route and nearby markers', async () => {
+  assert(await waitFor(`document.querySelectorAll('.leaflet-marker-icon .pin').length > 3 && document.querySelectorAll('.leaflet-tile-loaded').length > 0`, 25000), 'no markers/tiles');
+  const m = JSON.parse(await ev(`JSON.stringify({ pins: document.querySelectorAll('.pin:not(.hotel):not(.near)').length, hotel: document.querySelectorAll('.pin.hotel').length, near: document.querySelectorAll('.pin.near').length, lines: document.querySelectorAll('.leaflet-overlay-pane path').length })`));
+  assert(m.pins >= 4 && m.hotel === 1 && m.lines >= 1, JSON.stringify(m));
   return JSON.stringify(m);
 });
-await test('mobile watch page: 16:9 player, no overflow, video plays', async () => {
-  await go(SITE + 'watch.html?p=open&id=Tears-of-Steel');
-  assert(await waitFor(playing(1), 60000), 'did not play');
-  const b = JSON.parse(await ev(`(() => { const r = document.querySelector('#player').getBoundingClientRect(); return JSON.stringify({ ratio: +(r.width / r.height).toFixed(3), w: document.documentElement.scrollWidth }); })()`));
-  assert(Math.abs(b.ratio - 16 / 9) < 0.02 && b.w <= 390, JSON.stringify(b));
-  await shot('watch-mobile');
-  return JSON.stringify(b);
+await test('choosing a day on the map shows per-leg travel times', async () => {
+  await click('[data-mapday="0"]');
+  assert(await waitFor(`document.querySelectorAll('.leg').length > 0`), 'no leg labels');
+  const legs = await ev(`[...document.querySelectorAll('.leg')].map(l => l.textContent.trim()).join(' | ')`);
+  await click('[data-mapday="all"]');
+  return legs;
 });
-await send('Emulation.clearDeviceMetricsOverride');
+await test('🗺️ button focuses the place and opens its popup with travel + nearby', async () => {
+  await click('[data-map]');
+  assert(await waitFor(`!!document.querySelector('.leaflet-popup-content .pop')`, 5000), 'no popup');
+  return await ev(`document.querySelector('.leaflet-popup-content').textContent.replace(/\\s+/g, ' ').slice(0, 120)`);
+});
+await shot('plan');
 
-// ---------- Done ----------
-ws.close(); browser.kill(); mockServer.close(); siteServer.close();
-const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} passed · screenshots: ${SHOTS}`);
-process.exit(failed.length ? 1 : 0);
+// ---------- แก้ไข / ลบ / เพิ่ม ----------
+await test('edit an item cost → totals update', async () => {
+  const before = await total();
+  await click('[data-edit]');
+  assert(await waitFor(`!!document.querySelector('#editForm')`), 'no edit form');
+  await ev(`(() => { const f = document.querySelector('#editForm'); f.cost.value = Number(f.cost.value) + 500; f.name.value = 'รายการที่แก้ไขแล้ว'; f.requestSubmit(); })()`);
+  assert(await waitFor(`[...document.querySelectorAll('.item-name')].some(n => n.textContent === 'รายการที่แก้ไขแล้ว')`), 'name not updated');
+  const after = await total();
+  assert(after === before + 500, `${before} → ${after}`);
+  return `${before} → ${after}`;
+});
+await test('delete an item → total drops; undo restores it', async () => {
+  const before = await total();
+  const count = await ev(`document.querySelectorAll('.item').length`);
+  await ev(`[...document.querySelectorAll('.item')].find(i => i.querySelector('.item-cost').textContent.match(/\\d/)).querySelector('[data-del]').click()`);
+  assert(await waitFor(`document.querySelectorAll('.item').length === ${count - 1}`), 'not deleted');
+  const mid = await total();
+  assert(mid < before, 'total did not drop');
+  await click('#toast button');
+  assert(await waitFor(`document.querySelectorAll('.item').length === ${count}`), 'undo failed');
+  assert(await total() === before, 'total not restored');
+  return `${before} → ${mid} → ${before}`;
+});
+await test('add a suggested place and a custom item', async () => {
+  const count = await ev(`document.querySelectorAll('.item').length`);
+  await click('[data-add="0"]');
+  assert(await waitFor(`document.querySelectorAll('[data-pick]').length > 0`), 'no suggestions');
+  const name = await ev(`document.querySelector('[data-pick]').dataset.pick`);
+  await click('[data-pick]');
+  assert(await waitFor(`document.querySelectorAll('.item').length === ${count + 1}`), 'suggestion not added');
+  await click('[data-add="1"]');
+  await click('[data-tab="custom"]');
+  await ev(`(() => { const f = document.querySelector('#customForm'); f.name.value = 'ซื้อของฝาก'; f.cost.value = 450; f.requestSubmit(); })()`);
+  assert(await waitFor(`[...document.querySelectorAll('.item-name')].some(n => n.textContent === 'ซื้อของฝาก')`), 'custom not added');
+  return `+ ${name} · + ซื้อของฝาก`;
+});
+await test('add from "สถานที่ใกล้เคียง" list', async () => {
+  const count = await ev(`document.querySelectorAll('.item').length`);
+  if (!(await ev(`!!document.querySelector('#nearby [data-addnear]')`))) return 'no nearby left (ok)';
+  await click('#nearby [data-addnear]');
+  assert(await waitFor(`document.querySelectorAll('.item').length === ${count + 1}`), 'nearby not added');
+});
+
+// ---------- บันทึก ----------
+await test('save plan → appears in "แผนของฉัน" and survives reload', async () => {
+  await click('#saveBtn');
+  assert(await waitFor(`document.querySelector('#saveBtn').textContent.includes('บันทึกแล้ว')`), 'not saved');
+  const id = await ev(`location.hash.split('/').pop()`);
+  const t = await total();
+  await go(SITE + '#/saved');
+  assert(await waitFor(`document.querySelectorAll('.saved-card').length === 1`), 'not in saved list');
+  await go(SITE + '#/plan/' + id);
+  await send('Page.reload');
+  await sleep(1200);
+  assert(await waitFor(`!!document.querySelector('#totalSpent')`), 'plan did not load after reload');
+  assert(await total() === t, 'total changed after reload');
+  assert(await ev(`[...document.querySelectorAll('.item-name')].some(n => n.textContent === 'ซื้อของฝาก')`), 'edits lost');
+  return `${id} · ${t}`;
+});
+await test('edits on a saved plan autosave', async () => {
+  await ev(`[...document.querySelectorAll('.item')].find(i => i.querySelector('.item-name').textContent === 'ซื้อของฝาก').querySelector('[data-del]').click()`);
+  await sleep(300);
+  await send('Page.reload');
+  await sleep(1200);
+  await waitFor(`!!document.querySelector('#totalSpent')`);
+  assert(!(await ev(`[...document.querySelectorAll('.item-name')].some(n => n.textContent === 'ซื้อของฝาก')`)), 'deletion not persisted');
+});
+await test('delete a saved plan', async () => {
+  await go(SITE + '#/saved');
+  await click('[data-remove]');
+  await click('#confirmOk');
+  assert(await waitFor(`document.querySelectorAll('.saved-card').length === 0 && !!document.querySelector('.empty')`), 'not deleted');
+});
+await test('low budget warns and suggests a minimum', async () => {
+  await go(SITE + '#/');
+  await ev(`(() => { const i = document.querySelector('#budget'); i.value = '800'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  assert(await waitFor(`document.querySelector('#estimate').classList.contains('warn')`), 'no warning on form');
+  await click('#planner button[type=submit]');
+  assert(await waitFor(`!!document.querySelector('.alert [data-act="usemin"]')`), 'no min-budget action');
+  await click('[data-act="usemin"]');
+  assert(await waitFor(`!document.querySelector('.alert')`), 'still over budget after using minimum');
+});
+
+// ---------- มือถือ ----------
+await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+await test('mobile: no horizontal overflow on home and plan, bottom bar visible', async () => {
+  await go(SITE + '#/');
+  await waitFor(`!!document.querySelector('#planner')`);
+  const hw = await ev('document.documentElement.scrollWidth');
+  await click('#planner button[type=submit]');
+  await waitFor(`!!document.querySelector('#days .item')`);
+  const pw = await ev('document.documentElement.scrollWidth');
+  const bar = await ev(`getComputedStyle(document.querySelector('.bottom-bar')).display !== 'none'`);
+  assert(hw <= 390 && pw <= 390 && bar, JSON.stringify({ hw, pw, bar }));
+  await shot('plan-mobile');
+  return `home ${hw}px · plan ${pw}px`;
+});
+await test('no JavaScript errors on any page', async () => { assert(!pageErrors.length, pageErrors.join(' | ')); });
+
+ws.close(); browser.kill(); siteServer.close();
+const failed = results.filter((r) => !r.ok).length;
+console.log(`\n${results.length - failed}/${results.length} passed · screenshots: ${SHOTS}`);
+process.exit(failed ? 1 : 0);

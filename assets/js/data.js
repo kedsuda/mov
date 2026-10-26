@@ -1,0 +1,293 @@
+// ข้อมูลตัวอย่าง: จังหวัด โซน สถานที่ และค่าใช้จ่ายโดยประมาณ (บาท)
+// ---------------------------------------------------------------------------
+// ทุกตัวเลขเป็น "ค่าประมาณ" สำหรับนักท่องเที่ยวชาวไทย ไม่ใช่ข้อมูลสด
+// ยังไม่ได้เชื่อม API แผนที่หรือแหล่งข้อมูลราคาจริง — หน้าเว็บแจ้งผู้ใช้ให้ตรวจสอบก่อนเดินทาง
+//
+// costs (ลำดับ [ประหยัด, มาตรฐาน, สบาย]):
+//   lodging   ค่าที่พักต่อห้องต่อคืน (ห้องละ 2 คน)
+//   food      ค่าอาหารต่อคนต่อวัน
+//   transport ค่าเดินทางในพื้นที่ต่อกลุ่มต่อวัน
+// fromBangkok: ค่าเดินทางไป-กลับจากกรุงเทพฯ ต่อคน [ประหยัด, สะดวก]
+// zones: ชื่อโซน และเวลาเดินทางโดยประมาณจากใจกลางเมือง (นาที) ใช้คำนวณเวลาเดินทางระหว่างสถานที่
+//
+// center: พิกัดโดยประมาณของย่านที่พักแนะนำ
+// places: ll พิกัดโดยประมาณ [lat, lng] (ไม่ได้มาจาก API แผนที่) · n ชื่อ · z โซน · t ประเภท · fee ค่าเข้าชมต่อคน · spend ค่าใช้จ่ายระหว่างเที่ยวต่อคน (เช่น เครื่องดื่มคาเฟ่)
+//         h ชั่วโมงที่ใช้ · when morning | day | evening | fullday · note หมายเหตุ
+// เรียงตามความนิยม (รายการแรก = แนะนำที่สุด)
+// ---------------------------------------------------------------------------
+(function (root) {
+  'use strict';
+
+  const TYPES = {
+    nature: { label: 'ธรรมชาติ', icon: '🌿' },
+    beach: { label: 'ทะเล', icon: '🏖️' },
+    cafe: { label: 'คาเฟ่', icon: '☕' },
+    culture: { label: 'ประวัติศาสตร์', icon: '🏛️' },
+    food: { label: 'ตลาด/ของกิน', icon: '🍜' },
+    shopping: { label: 'ช้อปปิ้ง', icon: '🛍️' },
+    activity: { label: 'กิจกรรม', icon: '🎟️' }
+  };
+
+  const PROVINCES = [
+    {
+      id: 'bangkok', name: 'กรุงเทพฯ', full: 'กรุงเทพมหานคร', region: 'ภาคกลาง', emoji: '🛕', color: ['#FF7A59', '#FFB547'],
+      blurb: 'วัดวังริมเจ้าพระยา ย่านเก่า สตรีทฟู้ดเยาวราช',
+      costs: { lodging: [600, 1500, 3500], food: [300, 600, 1200], transport: [150, 400, 1200] },
+      fromBangkok: null,
+      center: [13.746, 100.534],
+      zones: { siam: ['สยาม', 0], silom: ['สีลม', 15], rattanakosin: ['เกาะรัตนโกสินทร์', 25], yaowarat: ['เยาวราช', 20], riverside: ['ริมเจ้าพระยา', 30], chatuchak: ['จตุจักร', 30], ari: ['อารีย์', 25], ratchada: ['รัชดา', 25] },
+      places: [
+        { ll: [13.7516, 100.4927], n: 'วัดพระแก้ว และพระบรมมหาราชวัง', z: 'rattanakosin', t: 'culture', fee: 0, h: 2.5, when: 'morning', note: 'คนไทยเข้าชมฟรี แต่งกายสุภาพ' },
+        { ll: [13.7465, 100.4927], n: 'วัดโพธิ์ (พระพุทธไสยาสน์)', z: 'rattanakosin', t: 'culture', fee: 0, h: 1.5, when: 'day', note: '' },
+        { ll: [13.7437, 100.4889], n: 'วัดอรุณราชวราราม', z: 'rattanakosin', t: 'culture', fee: 0, h: 1, when: 'day', note: 'นั่งเรือข้ามฟากจากท่าเตียน' },
+        { ll: [13.7398, 100.5101], n: 'เยาวราช สตรีทฟู้ดยามค่ำ', z: 'yaowarat', t: 'food', fee: 0, h: 2, when: 'evening', note: '' },
+        { ll: [13.7797, 100.5446], n: 'ย่านคาเฟ่อารีย์', z: 'ari', t: 'cafe', fee: 0, spend: 150, h: 1.5, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [13.7999, 100.5503], n: 'ตลาดนัดจตุจักร', z: 'chatuchak', t: 'shopping', fee: 0, h: 3, when: 'day', note: 'คึกคักวันเสาร์-อาทิตย์' },
+        { ll: [13.7267, 100.5106], n: 'ไอคอนสยาม', z: 'riverside', t: 'shopping', fee: 0, h: 2, when: 'day', note: '' },
+        { ll: [13.7441, 100.494], n: 'มิวเซียมสยาม', z: 'rattanakosin', t: 'culture', fee: 100, h: 1.5, when: 'day', note: '' },
+        { ll: [13.733, 100.51], n: 'ตลาดน้อย และล้ง 1919', z: 'yaowarat', t: 'culture', fee: 0, h: 1.5, when: 'day', note: 'ย่านเก่าริมน้ำ สตรีทอาร์ต' },
+        { ll: [13.7466, 100.5302], n: 'หอศิลปวัฒนธรรมแห่งกรุงเทพฯ (BACC)', z: 'siam', t: 'culture', fee: 0, h: 1, when: 'day', note: 'ปิดวันจันทร์' },
+        { ll: [13.7462, 100.5347], n: 'สยามสแควร์ และสยามพารากอน', z: 'siam', t: 'shopping', fee: 0, h: 2, when: 'day', note: '' },
+        { ll: [13.7491, 100.5283], n: 'พิพิธภัณฑ์บ้านจิมทอมป์สัน', z: 'siam', t: 'culture', fee: 200, h: 1, when: 'day', note: '' },
+        { ll: [13.7314, 100.5414], n: 'สวนลุมพินี', z: 'silom', t: 'nature', fee: 0, h: 1, when: 'morning', note: 'เดินเล่นยามเช้า' },
+        { ll: [13.7577, 100.5665], n: 'จ๊อดแฟร์ ตลาดนัดกลางคืน', z: 'ratchada', t: 'food', fee: 0, h: 2, when: 'evening', note: '' }
+      ]
+    },
+    {
+      id: 'chiangmai', name: 'เชียงใหม่', full: 'เชียงใหม่', region: 'ภาคเหนือ', emoji: '⛰️', color: ['#22C3A6', '#4FA3FF'],
+      blurb: 'ดอยสุเทพ เมืองเก่า คาเฟ่นิมมาน ยอดดอยอินทนนท์',
+      costs: { lodging: [500, 1200, 3000], food: [250, 500, 1000], transport: [200, 600, 1500] },
+      fromBangkok: { price: [1300, 2800], mode: ['รถทัวร์', 'เครื่องบิน'] },
+      center: [18.788, 98.986],
+      zones: { oldcity: ['คูเมือง', 0], nimman: ['นิมมาน', 10], suthep: ['ดอยสุเทพ', 35], maerim: ['แม่ริม', 35], sankamphaeng: ['สันกำแพง', 30], maekampong: ['แม่กำปอง', 60], inthanon: ['ดอยอินทนนท์', 100] },
+      places: [
+        { ll: [18.805, 98.9217], n: 'วัดพระธาตุดอยสุเทพ', z: 'suthep', t: 'culture', fee: 30, h: 2, when: 'morning', note: 'ค่าขึ้นลิฟต์/รถราง' },
+        { ll: [18.787, 98.9864], n: 'วัดเจดีย์หลวง', z: 'oldcity', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [18.8, 98.968], n: 'คาเฟ่ย่านนิมมานเหมินท์', z: 'nimman', t: 'cafe', fee: 0, spend: 150, h: 1.5, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [18.55, 98.48], n: 'ดอยอินทนนท์ (ยอดดอย พระมหาธาตุ น้ำตกวชิรธาร)', z: 'inthanon', t: 'nature', fee: 50, h: 8, when: 'fullday', note: 'ใช้เวลาทั้งวัน แนะนำเช่ารถ' },
+        { ll: [18.7884, 98.9821], n: 'วัดพระสิงห์', z: 'oldcity', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [18.7877, 98.9933], n: 'ถนนคนเดินวันอาทิตย์ ประตูท่าแพ', z: 'oldcity', t: 'food', fee: 0, h: 2, when: 'evening', note: 'เฉพาะเย็นวันอาทิตย์' },
+        { ll: [18.8653, 99.3511], n: 'หมู่บ้านแม่กำปอง', z: 'maekampong', t: 'nature', fee: 0, spend: 100, h: 3, when: 'day', note: 'คาเฟ่ริมลำธารกลางหุบเขา' },
+        { ll: [18.932, 98.821], n: 'ม่อนแจ่ม', z: 'maerim', t: 'nature', fee: 0, h: 2, when: 'day', note: '' },
+        { ll: [18.8891, 98.8617], n: 'สวนพฤกษศาสตร์สมเด็จพระนางเจ้าสิริกิติ์', z: 'maerim', t: 'nature', fee: 40, h: 2, when: 'day', note: 'ทางเดินลอยฟ้า' },
+        { ll: [18.8045, 98.8997], n: 'พระตำหนักภูพิงคราชนิเวศน์', z: 'suthep', t: 'nature', fee: 50, h: 1.5, when: 'day', note: '' },
+        { ll: [18.783, 98.951], n: 'วัดอุโมงค์', z: 'nimman', t: 'culture', fee: 0, h: 1, when: 'day', note: 'อุโมงค์โบราณในป่า' },
+        { ll: [18.7903, 99.001], n: 'กาดหลวง (ตลาดวโรรส)', z: 'oldcity', t: 'food', fee: 0, h: 1, when: 'morning', note: 'ของฝาก แคบหมู ไส้อั่ว' },
+        { ll: [18.7853, 99.0006], n: 'ไนท์บาซาร์เชียงใหม่', z: 'oldcity', t: 'shopping', fee: 0, h: 2, when: 'evening', note: '' },
+        { ll: [18.7655, 99.079], n: 'บ่อสร้าง หมู่บ้านทำร่ม', z: 'sankamphaeng', t: 'shopping', fee: 0, h: 1.5, when: 'day', note: '' }
+      ]
+    },
+    {
+      id: 'phuket', name: 'ภูเก็ต', full: 'ภูเก็ต', region: 'ภาคใต้', emoji: '🏝️', color: ['#1FB6FF', '#22D3C5'],
+      blurb: 'ทะเลอันดามัน เมืองเก่าชิโน-โปรตุกีส เกาะพีพี',
+      costs: { lodging: [700, 1800, 4500], food: [350, 700, 1400], transport: [400, 1000, 2000] },
+      fromBangkok: { price: [1700, 3000], mode: ['รถทัวร์', 'เครื่องบิน'] },
+      center: [7.884, 98.389],
+      zones: { town: ['ตัวเมือง', 0], chalong: ['ฉลอง', 20], patong: ['ป่าตอง', 30], kata: ['กะตะ-กะรน', 35], south: ['แหลมพรหมเทพ', 40], phiphi: ['เกาะพีพี', 120] },
+      places: [
+        { ll: [7.884, 98.388], n: 'ย่านเมืองเก่าภูเก็ต (ถนนถลาง ซอยรมณีย์)', z: 'town', t: 'culture', fee: 0, h: 2, when: 'morning', note: '' },
+        { ll: [7.82, 98.298], n: 'หาดกะตะ และหาดกะรน', z: 'kata', t: 'beach', fee: 0, h: 3, when: 'day', note: '' },
+        { ll: [7.7407, 98.7784], n: 'ทัวร์เกาะพีพี 1 วัน', z: 'phiphi', t: 'beach', fee: 1800, h: 8, when: 'fullday', note: 'ราคาทัวร์ต่างกันตามบริษัทและฤดูกาล' },
+        { ll: [7.76, 98.305], n: 'แหลมพรหมเทพ', z: 'south', t: 'nature', fee: 0, h: 1, when: 'evening', note: 'จุดชมพระอาทิตย์ตก' },
+        { ll: [7.885, 98.387], n: 'คาเฟ่ย่านเมืองเก่าภูเก็ต', z: 'town', t: 'cafe', fee: 0, spend: 150, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [7.8277, 98.3128], n: 'พระใหญ่ภูเก็ต', z: 'chalong', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [7.8469, 98.3369], n: 'วัดฉลอง', z: 'chalong', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [7.7783, 98.304], n: 'หาดในหาน', z: 'south', t: 'beach', fee: 0, h: 2, when: 'day', note: '' },
+        { ll: [7.8961, 98.2963], n: 'หาดป่าตอง และถนนบางลา', z: 'patong', t: 'beach', fee: 0, h: 2, when: 'evening', note: '' },
+        { ll: [7.8858, 98.374], n: 'จุดชมวิวเขารัง', z: 'town', t: 'nature', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [7.8838, 98.3895], n: 'ถนนคนเดินภูเก็ต (หลาดใหญ่)', z: 'town', t: 'food', fee: 0, h: 2, when: 'evening', note: 'เฉพาะเย็นวันอาทิตย์' }
+      ]
+    },
+    {
+      id: 'krabi', name: 'กระบี่', full: 'กระบี่', region: 'ภาคใต้', emoji: '🚤', color: ['#00B4D8', '#48CAE4'],
+      blurb: 'อ่าวนาง ไร่เลย์ ทัวร์ 4 เกาะ สระมรกต',
+      costs: { lodging: [600, 1500, 3800], food: [300, 600, 1200], transport: [300, 800, 1800] },
+      fromBangkok: { price: [1500, 3000], mode: ['รถทัวร์', 'เครื่องบิน'] },
+      center: [8.033, 98.824],
+      zones: { aonang: ['อ่าวนาง', 0], city: ['ตัวเมืองกระบี่', 30], islands: ['หมู่เกาะ', 60], khlongthom: ['คลองท่อม', 60] },
+      places: [
+        { ll: [7.9686, 98.81], n: 'ทัวร์ 4 เกาะ (ทะเลแหวก เกาะไก่ เกาะปอดะ)', z: 'islands', t: 'beach', fee: 1000, h: 7, when: 'fullday', note: 'อาจมีค่าธรรมเนียมอุทยานเพิ่ม' },
+        { ll: [8.0115, 98.838], n: 'หาดไร่เลย์ (เรือหางยาวจากอ่าวนาง)', z: 'aonang', t: 'beach', fee: 200, h: 4, when: 'day', note: 'ค่าเรือไป-กลับ' },
+        { ll: [8.0306, 98.823], n: 'หาดอ่าวนาง ชมพระอาทิตย์ตก', z: 'aonang', t: 'beach', fee: 0, h: 2, when: 'evening', note: '' },
+        { ll: [7.925, 99.272], n: 'สระมรกต', z: 'khlongthom', t: 'nature', fee: 40, h: 2, when: 'morning', note: '' },
+        { ll: [8.035, 98.82], n: 'คาเฟ่วิวทะเลอ่าวนาง', z: 'aonang', t: 'cafe', fee: 0, spend: 150, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [7.9257, 99.1966], n: 'น้ำตกร้อนคลองท่อม', z: 'khlongthom', t: 'nature', fee: 40, h: 1.5, when: 'day', note: '' },
+        { ll: [8.127, 98.923], n: 'วัดถ้ำเสือ', z: 'city', t: 'culture', fee: 0, h: 2, when: 'morning', note: 'บันได 1,237 ขั้น' },
+        { ll: [8.064, 98.915], n: 'เขาขนาบน้ำ', z: 'city', t: 'nature', fee: 100, h: 1.5, when: 'day', note: 'ค่าเรือโดยประมาณ' },
+        { ll: [8.062, 98.917], n: 'ถนนคนเดินกระบี่', z: 'city', t: 'food', fee: 0, h: 2, when: 'evening', note: 'ศุกร์-อาทิตย์' }
+      ]
+    },
+    {
+      id: 'chiangrai', name: 'เชียงราย', full: 'เชียงราย', region: 'ภาคเหนือ', emoji: '🏯', color: ['#7C5CFF', '#4FA3FF'],
+      blurb: 'วัดร่องขุ่น บ้านดำ ดอยตุง สามเหลี่ยมทองคำ',
+      costs: { lodging: [500, 1100, 2800], food: [250, 450, 900], transport: [300, 800, 1600] },
+      fromBangkok: { price: [1400, 2800], mode: ['รถทัวร์', 'เครื่องบิน'] },
+      center: [19.91, 99.833],
+      zones: { city: ['ตัวเมือง', 0], doitung: ['ดอยตุง', 60], goldentriangle: ['สามเหลี่ยมทองคำ', 70], maesalong: ['ดอยแม่สลอง', 80] },
+      places: [
+        { ll: [19.8244, 99.7633], n: 'วัดร่องขุ่น', z: 'city', t: 'culture', fee: 0, h: 1.5, when: 'morning', note: 'คนไทยเข้าชมฟรี' },
+        { ll: [19.9233, 99.8417], n: 'วัดร่องเสือเต้น (วัดสีน้ำเงิน)', z: 'city', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [19.9928, 99.8608], n: 'พิพิธภัณฑ์บ้านดำ', z: 'city', t: 'culture', fee: 80, h: 1.5, when: 'day', note: '' },
+        { ll: [20.331, 99.831], n: 'ดอยตุง (พระตำหนัก สวนแม่ฟ้าหลวง)', z: 'doitung', t: 'nature', fee: 90, h: 4, when: 'day', note: '' },
+        { ll: [19.865, 99.74], n: 'สิงห์ปาร์ค', z: 'city', t: 'nature', fee: 0, h: 2, when: 'day', note: 'รถชมสวนมีค่าใช้จ่าย' },
+        { ll: [20.162, 99.62], n: 'คาเฟ่ไร่ชาดอยแม่สลอง', z: 'maesalong', t: 'cafe', fee: 0, spend: 120, h: 3, when: 'day', note: 'ชิมชาและชมวิว' },
+        { ll: [20.3537, 100.083], n: 'สามเหลี่ยมทองคำ และหอฝิ่น', z: 'goldentriangle', t: 'culture', fee: 50, h: 2, when: 'day', note: '' },
+        { ll: [19.906, 99.832], n: 'ไนท์บาซาร์ และหอนาฬิกาเชียงราย', z: 'city', t: 'food', fee: 0, h: 2, when: 'evening', note: '' },
+        { ll: [20.428, 99.884], n: 'ตลาดชายแดนแม่สาย', z: 'goldentriangle', t: 'shopping', fee: 0, h: 1.5, when: 'day', note: '' }
+      ]
+    },
+    {
+      id: 'pattaya', name: 'พัทยา', full: 'ชลบุรี (พัทยา)', region: 'ภาคตะวันออก', emoji: '🌊', color: ['#FF5E8A', '#FF9F43'],
+      blurb: 'ทะเลใกล้กรุง เกาะล้าน ปราสาทสัจธรรม สวนนงนุช',
+      costs: { lodging: [600, 1500, 3500], food: [300, 600, 1200], transport: [200, 500, 1200] },
+      fromBangkok: { price: [250, 900], mode: ['รถทัวร์', 'รถตู้/รถส่วนตัว'] },
+      center: [12.933, 100.882],
+      zones: { city: ['พัทยากลาง', 0], north: ['พัทยาเหนือ', 10], jomtien: ['จอมเทียน', 15], south: ['สัตหีบ-นงนุช', 25], kohlarn: ['เกาะล้าน', 45] },
+      places: [
+        { ll: [12.918, 100.78], n: 'เกาะล้าน (เรือโดยสาร)', z: 'kohlarn', t: 'beach', fee: 80, h: 5, when: 'day', note: 'ค่าเรือไป-กลับ' },
+        { ll: [12.9727, 100.889], n: 'ปราสาทสัจธรรม', z: 'north', t: 'culture', fee: 250, h: 1.5, when: 'morning', note: '' },
+        { ll: [12.88, 100.87], n: 'หาดจอมเทียน', z: 'jomtien', t: 'beach', fee: 0, h: 2, when: 'day', note: '' },
+        { ll: [12.766, 100.934], n: 'สวนนงนุช', z: 'south', t: 'nature', fee: 400, h: 3, when: 'day', note: '' },
+        { ll: [12.87, 100.875], n: 'คาเฟ่ริมทะเลจอมเทียน', z: 'jomtien', t: 'cafe', fee: 0, spend: 150, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [12.923, 100.868], n: 'จุดชมวิวเขาพระตำหนัก', z: 'city', t: 'nature', fee: 0, h: 1, when: 'evening', note: '' },
+        { ll: [12.775, 100.957], n: 'วัดญาณสังวราราม', z: 'south', t: 'culture', fee: 0, h: 1.5, when: 'day', note: '' },
+        { ll: [12.868, 100.905], n: 'ตลาดน้ำ 4 ภาค', z: 'city', t: 'food', fee: 0, h: 1.5, when: 'day', note: '' },
+        { ll: [12.95, 100.889], n: 'เทอร์มินอล 21 พัทยา', z: 'north', t: 'shopping', fee: 0, h: 1.5, when: 'day', note: '' },
+        { ll: [12.927, 100.872], n: 'ถนนคนเดินพัทยา', z: 'city', t: 'food', fee: 0, h: 2, when: 'evening', note: '' }
+      ]
+    },
+    {
+      id: 'huahin', name: 'หัวหิน', full: 'ประจวบคีรีขันธ์ (หัวหิน)', region: 'ภาคตะวันตก', emoji: '🐚', color: ['#FFB547', '#FF7A59'],
+      blurb: 'ทะเลหัวหิน ตลาดโต้รุ่ง ถ้ำพระยานคร',
+      costs: { lodging: [600, 1500, 3500], food: [300, 550, 1100], transport: [200, 500, 1200] },
+      fromBangkok: { price: [400, 1000], mode: ['รถตู้/รถไฟ', 'รถส่วนตัว'] },
+      center: [12.57, 99.958],
+      zones: { town: ['ตัวเมืองหัวหิน', 0], south: ['เขาตะเกียบ', 15], pranburi: ['ปราณบุรี', 35], samroiyot: ['สามร้อยยอด', 70] },
+      places: [
+        { ll: [12.57, 99.96], n: 'หาดหัวหิน', z: 'town', t: 'beach', fee: 0, h: 2, when: 'day', note: '' },
+        { ll: [12.195, 100.004], n: 'ถ้ำพระยานคร (อุทยานฯ เขาสามร้อยยอด)', z: 'samroiyot', t: 'nature', fee: 40, h: 4, when: 'morning', note: 'เดินขึ้นเขาราว 40 นาที' },
+        { ll: [12.57, 99.956], n: 'ตลาดโต้รุ่งหัวหิน', z: 'town', t: 'food', fee: 0, h: 1.5, when: 'evening', note: '' },
+        { ll: [12.565, 99.962], n: 'คาเฟ่ริมทะเลหัวหิน', z: 'town', t: 'cafe', fee: 0, spend: 150, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [12.568, 99.953], n: 'สถานีรถไฟหัวหิน', z: 'town', t: 'culture', fee: 0, h: 0.5, when: 'day', note: '' },
+        { ll: [12.515, 99.984], n: 'เขาตะเกียบ', z: 'south', t: 'nature', fee: 0, h: 1.5, when: 'day', note: 'จุดชมวิว' },
+        { ll: [12.533, 99.967], n: 'ตลาดซิเคด้า', z: 'south', t: 'shopping', fee: 0, h: 2, when: 'evening', note: 'ศุกร์-อาทิตย์' },
+        { ll: [12.399, 99.98], n: 'วนอุทยานปราณบุรี', z: 'pranburi', t: 'nature', fee: 0, h: 1.5, when: 'day', note: 'สะพานไม้ป่าชายเลน' },
+        { ll: [12.573, 99.956], n: 'ตลาดฉัตรไชย', z: 'town', t: 'food', fee: 0, h: 1, when: 'morning', note: '' }
+      ]
+    },
+    {
+      id: 'kanchanaburi', name: 'กาญจนบุรี', full: 'กาญจนบุรี', region: 'ภาคตะวันตก', emoji: '🌉', color: ['#2ECC71', '#22C3A6'],
+      blurb: 'สะพานข้ามแม่น้ำแคว ทางรถไฟสายมรณะ น้ำตกเอราวัณ',
+      costs: { lodging: [500, 1200, 3000], food: [250, 450, 900], transport: [300, 800, 1600] },
+      fromBangkok: { price: [250, 900], mode: ['รถตู้/รถไฟ', 'รถส่วนตัว'] },
+      center: [14.023, 99.532],
+      zones: { town: ['ตัวเมือง', 0], saiyok: ['ไทรโยค', 75], erawan: ['เอราวัณ', 80] },
+      places: [
+        { ll: [14.368, 99.144], n: 'น้ำตกเอราวัณ', z: 'erawan', t: 'nature', fee: 100, h: 4, when: 'morning', note: 'เตรียมชุดเล่นน้ำ' },
+        { ll: [14.041, 99.503], n: 'สะพานข้ามแม่น้ำแคว', z: 'town', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [14.198, 99.311], n: 'นั่งรถไฟสายมรณะถึงถ้ำกระแซ', z: 'saiyok', t: 'activity', fee: 100, h: 3, when: 'day', note: 'ตรวจสอบเวลารถไฟก่อน' },
+        { ll: [14.03, 99.52], n: 'คาเฟ่ริมแม่น้ำแคว', z: 'town', t: 'cafe', fee: 0, spend: 120, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [14.031, 99.526], n: 'สุสานทหารสัมพันธมิตรดอนรัก', z: 'town', t: 'culture', fee: 0, h: 0.5, when: 'day', note: '' },
+        { ll: [14.04, 99.504], n: 'พิพิธภัณฑ์สงครามโลกครั้งที่ 2', z: 'town', t: 'culture', fee: 50, h: 1, when: 'day', note: '' },
+        { ll: [14.239, 99.064], n: 'น้ำตกไทรโยคน้อย', z: 'saiyok', t: 'nature', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [14.354, 98.953], n: 'พิพิธภัณฑ์ช่องเขาขาด', z: 'saiyok', t: 'culture', fee: 0, h: 1.5, when: 'day', note: '' },
+        { ll: [14.02, 99.53], n: 'ถนนคนเดินกาญจนบุรี', z: 'town', t: 'food', fee: 0, h: 1.5, when: 'evening', note: '' }
+      ]
+    },
+    {
+      id: 'ayutthaya', name: 'อยุธยา', full: 'พระนครศรีอยุธยา', region: 'ภาคกลาง', emoji: '🧱', color: ['#F59E0B', '#EF6C47'],
+      blurb: 'มรดกโลกเมืองเก่า วัดโบราณ พระราชวังบางปะอิน',
+      costs: { lodging: [500, 1100, 2500], food: [200, 400, 800], transport: [200, 500, 1200] },
+      fromBangkok: { price: [100, 700], mode: ['รถไฟ/รถตู้', 'รถส่วนตัว'] },
+      center: [14.355, 100.565],
+      zones: { island: ['เกาะเมือง', 0], westbank: ['ฝั่งตะวันตก', 10], east: ['ฝั่งตะวันออก', 10], bangpain: ['บางปะอิน', 35] },
+      places: [
+        { ll: [14.357, 100.567], n: 'วัดมหาธาตุ (เศียรพระในรากไม้)', z: 'island', t: 'culture', fee: 20, h: 1, when: 'morning', note: '' },
+        { ll: [14.356, 100.559], n: 'วัดพระศรีสรรเพชญ์', z: 'island', t: 'culture', fee: 20, h: 1, when: 'day', note: '' },
+        { ll: [14.343, 100.542], n: 'วัดไชยวัฒนาราม', z: 'westbank', t: 'culture', fee: 20, h: 1, when: 'evening', note: 'สวยช่วงพระอาทิตย์ตก' },
+        { ll: [14.354, 100.565], n: 'คาเฟ่วิวโบราณสถาน เกาะเมือง', z: 'island', t: 'cafe', fee: 0, spend: 100, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [14.359, 100.568], n: 'วัดราชบูรณะ', z: 'island', t: 'culture', fee: 20, h: 1, when: 'day', note: '' },
+        { ll: [14.345, 100.593], n: 'วัดใหญ่ชัยมงคล', z: 'east', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [14.232, 100.579], n: 'พระราชวังบางปะอิน', z: 'bangpain', t: 'culture', fee: 50, h: 2, when: 'morning', note: 'แต่งกายสุภาพ' },
+        { ll: [14.352, 100.577], n: 'ล่องเรือรอบเกาะเมือง', z: 'island', t: 'activity', fee: 200, h: 1, when: 'evening', note: '' },
+        { ll: [14.358, 100.601], n: 'ตลาดน้ำอโยธยา', z: 'east', t: 'food', fee: 0, h: 1.5, when: 'day', note: '' },
+        { ll: [14.364, 100.576], n: 'ตลาดโต้รุ่งหัวรอ', z: 'island', t: 'food', fee: 0, h: 1.5, when: 'evening', note: '' }
+      ]
+    },
+    {
+      id: 'sukhothai', name: 'สุโขทัย', full: 'สุโขทัย', region: 'ภาคเหนือ', emoji: '🚲', color: ['#E8A33D', '#C2410C'],
+      blurb: 'อุทยานประวัติศาสตร์ ปั่นจักรยานชมเมืองเก่า',
+      costs: { lodging: [400, 900, 2200], food: [200, 400, 800], transport: [150, 400, 1000] },
+      fromBangkok: { price: [700, 4000], mode: ['รถทัวร์', 'เครื่องบิน'] },
+      center: [17.017, 99.706],
+      zones: { oldtown: ['เมืองเก่า', 0], west: ['เขตตะวันตก', 10], sisatchanalai: ['ศรีสัชนาลัย', 60] },
+      places: [
+        { ll: [17.017, 99.704], n: 'อุทยานประวัติศาสตร์สุโขทัย (วัดมหาธาตุ)', z: 'oldtown', t: 'culture', fee: 20, h: 3, when: 'morning', note: 'เช่าจักรยานปั่นชม' },
+        { ll: [17.029, 99.698], n: 'วัดศรีชุม', z: 'oldtown', t: 'culture', fee: 20, h: 1, when: 'day', note: '' },
+        { ll: [17.016, 99.709], n: 'คาเฟ่ในเขตเมืองเก่า', z: 'oldtown', t: 'cafe', fee: 0, spend: 100, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [17.018, 99.706], n: 'พิพิธภัณฑสถานแห่งชาติรามคำแหง', z: 'oldtown', t: 'culture', fee: 30, h: 1, when: 'day', note: '' },
+        { ll: [17.017, 99.68], n: 'วัดสะพานหิน', z: 'west', t: 'nature', fee: 20, h: 1.5, when: 'day', note: 'เดินขึ้นเนินชมวิว' },
+        { ll: [17.429, 99.788], n: 'อุทยานประวัติศาสตร์ศรีสัชนาลัย', z: 'sisatchanalai', t: 'culture', fee: 20, h: 3, when: 'morning', note: '' },
+        { ll: [17.457, 99.781], n: 'ศูนย์ศึกษาเตาสังคโลก', z: 'sisatchanalai', t: 'culture', fee: 20, h: 1, when: 'day', note: '' },
+        { ll: [17.015, 99.711], n: 'ตลาดโต้รุ่งเมืองเก่า', z: 'oldtown', t: 'food', fee: 0, h: 1.5, when: 'evening', note: '' }
+      ]
+    },
+    {
+      id: 'nan', name: 'น่าน', full: 'น่าน', region: 'ภาคเหนือ', emoji: '🌾', color: ['#10B981', '#84CC16'],
+      blurb: 'เมืองเก่าสงบ ปู่ม่านย่าม่าน บ่อเกลือ ดอยภูคา',
+      costs: { lodging: [450, 1000, 2500], food: [200, 400, 800], transport: [250, 700, 1500] },
+      fromBangkok: { price: [1200, 3000], mode: ['รถทัวร์', 'เครื่องบิน'] },
+      center: [18.776, 100.772],
+      zones: { city: ['ตัวเมืองน่าน', 0], pua: ['ปัว', 60], bokluea: ['บ่อเกลือ', 110] },
+      places: [
+        { ll: [18.775, 100.771], n: 'วัดภูมินทร์ (ปู่ม่านย่าม่าน)', z: 'city', t: 'culture', fee: 0, h: 1, when: 'morning', note: '' },
+        { ll: [18.759, 100.793], n: 'วัดพระธาตุแช่แห้ง', z: 'city', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [19.175, 100.92], n: 'ร้านกาแฟกลางนาข้าว อำเภอปัว', z: 'pua', t: 'cafe', fee: 0, spend: 100, h: 1.5, when: 'day', note: '' },
+        { ll: [19.205, 101.08], n: 'อุทยานแห่งชาติดอยภูคา', z: 'bokluea', t: 'nature', fee: 20, h: 2, when: 'morning', note: '' },
+        { ll: [19.147, 101.155], n: 'บ่อเกลือสินเธาว์โบราณ', z: 'bokluea', t: 'culture', fee: 0, h: 2, when: 'day', note: 'ทางคดเคี้ยว เผื่อเวลา' },
+        { ll: [18.766, 100.759], n: 'วัดพระธาตุเขาน้อย', z: 'city', t: 'nature', fee: 0, h: 1, when: 'evening', note: 'จุดชมวิวเมืองน่าน' },
+        { ll: [18.776, 100.77], n: 'พิพิธภัณฑสถานแห่งชาติน่าน', z: 'city', t: 'culture', fee: 20, h: 1, when: 'day', note: '' },
+        { ll: [18.778, 100.773], n: 'คาเฟ่ในเมืองน่าน', z: 'city', t: 'cafe', fee: 0, spend: 80, h: 1, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [18.965, 100.813], n: 'วัดหนองบัว', z: 'pua', t: 'culture', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [18.7755, 100.7715], n: 'ถนนคนเดินกาดข่วงเมืองน่าน', z: 'city', t: 'food', fee: 0, h: 1.5, when: 'evening', note: 'ศุกร์-อาทิตย์' }
+      ]
+    },
+    {
+      id: 'khaoyai', name: 'เขาใหญ่', full: 'นครราชสีมา (เขาใหญ่)', region: 'ภาคอีสาน', emoji: '🦌', color: ['#16A34A', '#0EA5E9'],
+      blurb: 'อุทยานแห่งชาติเขาใหญ่ ฟาร์ม ไร่องุ่น คาเฟ่วิวเขา',
+      costs: { lodging: [600, 1500, 3500], food: [300, 550, 1100], transport: [400, 900, 2000] },
+      fromBangkok: { price: [400, 1200], mode: ['รถทัวร์', 'รถส่วนตัว'] },
+      center: [14.583, 101.42],
+      zones: { pakchong: ['ปากช่อง', 0], khaoyai: ['อุทยานฯ เขาใหญ่', 40], city: ['ตัวเมืองโคราช', 90], phimai: ['พิมาย', 120] },
+      places: [
+        { ll: [14.438, 101.372], n: 'อุทยานแห่งชาติเขาใหญ่', z: 'khaoyai', t: 'nature', fee: 40, h: 4, when: 'morning', note: 'มีค่ารถเข้าอุทยานเพิ่ม' },
+        { ll: [14.429, 101.387], n: 'น้ำตกเหวสุวัต', z: 'khaoyai', t: 'nature', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [14.58, 101.4], n: 'คาเฟ่วิวภูเขา ปากช่อง', z: 'pakchong', t: 'cafe', fee: 0, spend: 150, h: 1.5, when: 'day', note: 'ค่าเครื่องดื่มโดยประมาณ' },
+        { ll: [14.624, 101.435], n: 'ฟาร์มโชคชัย', z: 'pakchong', t: 'activity', fee: 300, h: 2.5, when: 'day', note: '' },
+        { ll: [14.412, 101.366], n: 'จุดชมวิวผาเดียวดาย', z: 'khaoyai', t: 'nature', fee: 0, h: 1, when: 'day', note: '' },
+        { ll: [14.526, 101.345], n: 'พีบี วัลเล่ย์ ไร่องุ่น', z: 'pakchong', t: 'food', fee: 0, h: 1.5, when: 'day', note: 'ทัวร์ไร่มีค่าใช้จ่ายเพิ่ม' },
+        { ll: [14.56, 101.41], n: 'เดอะ พาลิโอ เขาใหญ่', z: 'pakchong', t: 'shopping', fee: 0, h: 1.5, when: 'evening', note: '' },
+        { ll: [15.221, 102.494], n: 'อุทยานประวัติศาสตร์พิมาย', z: 'phimai', t: 'culture', fee: 20, h: 2, when: 'morning', note: '' },
+        { ll: [14.975, 102.098], n: 'อนุสาวรีย์ท้าวสุรนารี (ย่าโม)', z: 'city', t: 'culture', fee: 0, h: 0.5, when: 'day', note: '' },
+        { ll: [14.974, 102.1], n: 'ถนนคนเดินโคราช', z: 'city', t: 'food', fee: 0, h: 1.5, when: 'evening', note: '' }
+      ]
+    }
+  ];
+
+  const STYLES = [
+    { id: 'nature', label: 'ธรรมชาติ', icon: '🌿', types: ['nature'] },
+    { id: 'cafe', label: 'คาเฟ่', icon: '☕', types: ['cafe'] },
+    { id: 'beach', label: 'ทะเล', icon: '🏖️', types: ['beach'] },
+    { id: 'history', label: 'ประวัติศาสตร์', icon: '🏛️', types: ['culture'] },
+    { id: 'food', label: 'ตลาด/ของกิน', icon: '🍜', types: ['food'] },
+    { id: 'shopping', label: 'ช้อปปิ้ง', icon: '🛍️', types: ['shopping', 'activity'] }
+  ];
+
+  const TIERS = [
+    { id: 0, label: 'ประหยัด', icon: '🎒', lodging: 'เกสต์เฮาส์/โฮสเทล', transport: 'รถสาธารณะ/สองแถว' },
+    { id: 1, label: 'มาตรฐาน', icon: '🧳', lodging: 'โรงแรม 3 ดาว', transport: 'รถรับจ้าง/แอปเรียกรถ' },
+    { id: 2, label: 'สบาย', icon: '✨', lodging: 'โรงแรม 4-5 ดาว', transport: 'เช่ารถพร้อมคนขับ' }
+  ];
+
+  root.TRIP_DATA = { TYPES, STYLES, TIERS, PROVINCES, UPDATED: 'ตุลาคม 2569' };
+})(typeof window !== 'undefined' ? window : globalThis);

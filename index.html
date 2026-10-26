@@ -3,179 +3,58 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>MovieHub Thailand — ดูหนังเต็มเรื่องฟรี ถูกลิขสิทธิ์</title>
-  <meta name="description" content="ค้นพบหนังใหม่ล่าสุดแบบเรียลไทม์ ดูตัวอย่าง และดูหนังคลาสสิกฟรีเต็มเรื่องแบบถูกลิขสิทธิ์ ไม่มีโฆษณา">
-  <meta name="theme-color" content="#08080a">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f6e7b0'/%3E%3Cstop offset='1' stop-color='%23a8842a'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%2308080a'/%3E%3Cpath d='M22 16v32l26-16z' fill='url(%23g)'/%3E%3C/svg%3E">
+  <title>เที่ยวพอดีงบ — วางแผนเที่ยวตามงบประมาณ</title>
+  <meta name="description" content="กรอกจังหวัด งบประมาณ จำนวนวัน จำนวนคน และสไตล์การเที่ยว แล้วรับแผนเที่ยวรายวันพร้อมแผนที่และค่าใช้จ่ายโดยประมาณ แก้ไขและบันทึกได้">
+  <meta name="theme-color" content="#FF7A59">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23FF7A59'/%3E%3Cstop offset='1' stop-color='%23FFB547'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M32 12c-8.3 0-15 6.5-15 14.6C17 37.5 32 52 32 52s15-14.5 15-25.4C47 18.5 40.3 12 32 12z' fill='%23fff'/%3E%3Ccircle cx='32' cy='27' r='6' fill='%23FF7A59'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=IBM+Plex+Sans+Thai:wght@300;400;500;600&family=Noto+Serif+Thai:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
   <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
-  <div class="grain" aria-hidden="true"></div>
-
-  <header class="topbar" id="topbar">
-    <a class="brand" href="./" aria-label="MovieHub Thailand หน้าแรก">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-name">MovieHub</span><span class="brand-tag">Thailand</span>
-    </a>
-    <nav class="nav" aria-label="หมวดหมู่">
-      <a href="#latest">ล่าสุด</a>
-      <a href="#catalog" data-cat="new">หนังใหม่</a>
-      <a href="#catalog" data-cat="action">แอ็กชัน</a>
-      <a href="#catalog" data-cat="horror">สยองขวัญ</a>
-      <a href="#catalog" data-cat="anime">อนิเมะ</a>
-      <a href="#rows">ไฮไลต์</a>
-    </nav>
-    <div class="top-actions">
-      <label class="search">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="searchInput" type="search" placeholder="ค้นหาหนัง ซีรีส์…" autocomplete="off" aria-label="ค้นหา">
-      </label>
-      <span class="live" id="liveStatus" title="อัปเดตอัตโนมัติทุก 5 นาที"><i></i><span>LIVE</span></span>
-      <button class="icon-btn" id="settingsBtn" aria-label="ตั้งค่า">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-      </button>
+  <header class="topbar">
+    <div class="wrap topbar-in">
+      <a class="logo" href="#/" aria-label="เที่ยวพอดีงบ หน้าหลัก">
+        <span class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40"><path d="M20 5c-6.6 0-12 5.2-12 11.7C8 25.4 20 36 20 36s12-10.6 12-19.3C32 10.2 26.6 5 20 5z" fill="#fff"/><circle cx="20" cy="17" r="4.6" fill="#FF7A59"/></svg>
+        </span>
+        <span class="logo-text">เที่ยว<b>พอดีงบ</b></span>
+      </a>
+      <nav class="top-nav" aria-label="เมนูหลัก">
+        <a href="#/" class="top-link" data-nav="home">วางแผนใหม่</a>
+        <a href="#/saved" class="top-link" data-nav="saved">แผนของฉัน <span class="count" id="savedCount" hidden>0</span></a>
+      </nav>
     </div>
   </header>
 
-  <section class="hero" id="hero" aria-live="polite">
-    <div class="hero-bg" id="heroBg"></div>
-    <div class="hero-shade"></div>
-    <div class="hero-content" id="heroContent">
-      <div class="skeleton sk-line" style="width:120px"></div>
-      <div class="skeleton sk-title"></div>
-      <div class="skeleton sk-line" style="width:60%"></div>
-    </div>
-    <div class="hero-dots" id="heroDots"></div>
-  </section>
-
-  <main id="main">
-    <div id="keyNotice" class="notice" hidden>
-      <div>
-        <strong>ปลดล็อกหนังใหม่ล่าสุดแบบเรียลไทม์</strong>
-        <p>ใส่ TMDB API Key (ฟรี) เพื่อแสดงหนังใหม่ทุกหมวด หนังมาแรง ตัวอย่างหนัง และช่องทางรับชมถูกลิขสิทธิ์ ระหว่างนี้คุณยังดูหนังเต็มเรื่องฟรีได้ด้านล่าง</p>
-      </div>
-      <button class="btn btn-gold" data-open-settings>ใส่ API Key</button>
-    </div>
-
-    <section class="row wide" id="latest">
-      <header class="row-head">
-        <div>
-          <span class="kicker">Just Added</span>
-          <h2>เพิ่มเข้ามาล่าสุด</h2>
-          <div class="row-sub">หนังดูฟรีที่เพิ่งเข้าคลัง เรียงตามวันที่เพิ่ม · อัปเดตอัตโนมัติ</div>
-        </div>
-        <div class="row-nav">
-          <button class="icon-btn" data-scroll="-1" aria-label="เลื่อนซ้าย"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
-          <button class="icon-btn" data-scroll="1" aria-label="เลื่อนขวา"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
-        </div>
-      </header>
-      <p class="row-error" id="latestError" hidden></p>
-      <div class="track" id="latestTrack">
-        <div class="skeleton sk-card"></div><div class="skeleton sk-card"></div><div class="skeleton sk-card"></div><div class="skeleton sk-card"></div><div class="skeleton sk-card"></div>
-      </div>
-    </section>
-
-    <section class="catalog" id="catalog" aria-labelledby="catalogTitle">
-      <header class="catalog-head">
-        <div>
-          <span class="kicker">Browse Movies</span>
-          <h2 id="catalogTitle">หนังใหม่</h2>
-          <div class="row-sub" id="catalogSub"></div>
-        </div>
-        <div class="catalog-tools">
-          <button class="btn btn-ghost btn-sm" id="clearSearch" hidden>ล้างการค้นหา</button>
-          <div class="segmented" role="group" aria-label="แหล่งข้อมูล">
-            <button data-source="free">ดูเต็มเรื่อง</button>
-            <button data-source="external">ดูฟรีที่บริการอื่น</button>
-            <button data-source="tmdb">หนังใหม่ (ตัวอย่าง)</button>
-          </div>
-        </div>
-      </header>
-      <nav class="cat-tabs" role="tablist" aria-label="หมวดหมู่">
-        <button role="tab" data-cat="new">หนังใหม่</button>
-        <button role="tab" data-cat="action">แอ็กชัน</button>
-        <button role="tab" data-cat="comedy">ตลก</button>
-        <button role="tab" data-cat="horror">สยองขวัญ</button>
-        <button role="tab" data-cat="anime">อนิเมะ</button>
-        <button role="tab" data-cat="scifi">ไซไฟ</button>
-        <button role="tab" data-cat="noir">ฟิล์มนัวร์</button>
-        <button role="tab" data-cat="western">คาวบอย</button>
-        <button role="tab" data-cat="drama">ดราม่า</button>
-        <button role="tab" data-cat="silent">หนังเงียบคลาสสิก</button>
-      </nav>
-      <div class="catalog-error" id="catalogError" role="alert" hidden></div>
-      <div class="grid" id="catalogGrid"></div>
-      <nav class="pager" id="pager" aria-label="แบ่งหน้า"></nav>
-    </section>
-
-    <div id="rows"></div>
-  </main>
+  <main id="app" tabindex="-1"></main>
 
   <footer class="footer">
-    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span class="brand-name">MovieHub</span><span class="brand-tag">Thailand</span></div>
-    <p>ข้อมูลหนัง โปสเตอร์ และตัวอย่าง จาก <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB</a> · หนังเต็มเรื่องสาธารณสมบัติจาก <a href="https://archive.org/details/feature_films" target="_blank" rel="noopener">Internet Archive</a></p>
-    <p class="fine">This product uses the TMDB API but is not endorsed or certified by TMDB. เว็บไซต์นี้ไม่โฮสต์หรือเผยแพร่ภาพยนตร์ละเมิดลิขสิทธิ์</p>
+    <div class="wrap">
+      <p><b>เที่ยวพอดีงบ</b> · วางแผนเที่ยวตามงบประมาณ</p>
+      <p class="fine">สถานที่ ราคา เวลาเดินทาง และตำแหน่งบนแผนที่เป็น <b>ข้อมูลตัวอย่างและค่าประมาณ</b> (ปรับปรุง <span id="dataUpdated"></span>) ไม่ใช่ข้อมูลสด เพราะยังไม่ได้เชื่อม API แผนที่หรือแหล่งข้อมูลราคาจริง กรุณาตรวจสอบเวลาเปิด-ปิดและราคาก่อนเดินทาง · แผนที่บันทึกจะเก็บไว้ในเบราว์เซอร์นี้เท่านั้น · แผนที่ © ผู้ร่วมพัฒนา OpenStreetMap</p>
+    </div>
   </footer>
 
-  <!-- Detail modal -->
-  <div class="modal" id="modal" hidden>
-    <div class="modal-backdrop" data-close></div>
-    <article class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <button class="icon-btn modal-close" data-close aria-label="ปิด">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-      </button>
-      <div id="modalBody"></div>
-    </article>
-  </div>
-
-  <!-- Settings -->
-  <div class="modal" id="settings" hidden>
-    <div class="modal-backdrop" data-close></div>
-    <form class="modal-panel settings-panel" id="settingsForm" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-      <button type="button" class="icon-btn modal-close" data-close aria-label="ปิด">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-      </button>
-      <span class="kicker">Settings</span>
-      <h2 id="settingsTitle">ตั้งค่า</h2>
-      <label class="field">
-        <span>TMDB API Key หรือ Read Access Token</span>
-        <input id="keyInput" type="password" autocomplete="off" placeholder="วางคีย์ที่นี่">
-        <small>สมัครฟรีที่ <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a> · คีย์เก็บไว้ในเบราว์เซอร์ของคุณเท่านั้น</small>
-      </label>
-      <div class="field-row">
-        <label class="field">
-          <span>ประเทศ (ช่องทางรับชม / หนังเข้าโรง)</span>
-          <select id="regionInput">
-            <option value="TH">ไทย</option>
-            <option value="US">สหรัฐอเมริกา</option>
-            <option value="GB">สหราชอาณาจักร</option>
-            <option value="JP">ญี่ปุ่น</option>
-            <option value="KR">เกาหลีใต้</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>ภาษา</span>
-          <select id="langInput">
-            <option value="th-TH">ไทย</option>
-            <option value="en-US">English</option>
-          </select>
-        </label>
-      </div>
-      <div class="settings-actions">
-        <button type="submit" class="btn btn-gold">บันทึก</button>
-      </div>
-    </form>
+  <div class="sheet" id="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <section class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <header class="sheet-head">
+        <h2 id="sheetTitle"></h2>
+        <button class="icon-btn" data-close aria-label="ปิด">✕</button>
+      </header>
+      <div class="sheet-body" id="sheetBody"></div>
+    </section>
   </div>
 
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="assets/js/config.js"></script>
-  <script src="assets/js/core.js"></script>
-  <script src="assets/js/providers.js"></script>
-  <script src="assets/js/catalog.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="assets/js/data.js"></script>
+  <script src="assets/js/planner.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
