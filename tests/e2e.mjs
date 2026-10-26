@@ -187,6 +187,28 @@ await test('add a suggested place and a custom item', async () => {
   assert(await waitFor(`[...document.querySelectorAll('.item-name')].some(n => n.textContent === 'ซื้อของฝาก')`), 'custom not added');
   return `+ ${name} · + ซื้อของฝาก`;
 });
+await test('add my own place: tap the mini map to pin it → shows on the trip map with travel time', async () => {
+  const pinsBefore = await ev(`document.querySelectorAll('#map .pin:not(.hotel):not(.near)').length`);
+  await click('[data-add-custom]');
+  assert(await waitFor(`!document.querySelector('#customForm').hidden && document.querySelectorAll('#locMap .leaflet-tile-loaded').length > 0`, 20000), 'picker map not shown');
+  const r = JSON.parse(await ev(`JSON.stringify(document.querySelector('#locMap').getBoundingClientRect())`));
+  const x = r.left + r.width / 2 + 25, y = r.top + r.height / 2 - 10;
+  for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
+  assert(await waitFor(`document.querySelector('#locStatus').textContent.includes('ปักหมุดแล้ว') && !!document.querySelector('#locMap .pin.pick')`, 5000), 'pin not placed');
+  await ev(`(() => { const f = document.querySelector('#customForm'); f.name.value = 'คาเฟ่ลับของฉัน'; f.type.value = 'cafe'; f.cat.value = 'food'; f.cost.value = 240; f.requestSubmit(); })()`);
+  assert(await waitFor(`[...document.querySelectorAll('.item')].some(i => i.querySelector('.item-name').textContent === 'คาเฟ่ลับของฉัน' && i.querySelector('[data-map]'))`), 'custom place not added with map button');
+  assert(await waitFor(`document.querySelectorAll('#map .pin:not(.hotel):not(.near)').length === ${pinsBefore + 1}`), 'no new pin on trip map');
+  const card = await ev(`(() => { const i = [...document.querySelectorAll('.item')].find(i => i.querySelector('.item-name').textContent === 'คาเฟ่ลับของฉัน'); const tr = i.previousElementSibling?.classList.contains('travel') ? i.previousElementSibling.textContent.trim() : ''; return i.querySelector('.item-meta').textContent.replace(/\\s+/g, ' ').trim() + ' | ' + tr; })()`);
+  assert(card.includes('☕') || card.includes('คาเฟ่'), card);
+  return card;
+});
+await test('edit my own place keeps its pin and can move/clear it', async () => {
+  await ev(`[...document.querySelectorAll('.item')].find(i => i.querySelector('.item-name').textContent === 'คาเฟ่ลับของฉัน').querySelector('[data-edit]').click()`);
+  assert(await waitFor(`!!document.querySelector('#editForm #locMap .pin.pick')`, 10000), 'existing pin not shown in edit');
+  await click('#locClear');
+  await ev(`document.querySelector('#editForm').requestSubmit()`);
+  assert(await waitFor(`(() => { const i = [...document.querySelectorAll('.item')].find(i => i.querySelector('.item-name').textContent === 'คาเฟ่ลับของฉัน'); return i && !i.querySelector('[data-map]'); })()`), 'pin not cleared');
+});
 await test('add from "สถานที่ใกล้เคียง" list', async () => {
   const count = await ev(`document.querySelectorAll('.item').length`);
   if (!(await ev(`!!document.querySelector('#nearby [data-addnear]')`))) return 'no nearby left (ok)';

@@ -30,7 +30,7 @@
   const DEFAULT_FORM = { province: 'chiangmai', budget: 8000, days: 3, people: 2, styles: ['nature', 'cafe'], includeTravel: false };
   const state = {
     form: { ...DEFAULT_FORM, ...(store.get(KEYS.form, {}) || {}) },
-    plan: null, map: null, layers: null, markers: {}, mapDay: 'all', showNearby: true, undo: null
+    plan: null, map: null, pickerMap: null, layers: null, markers: {}, mapDay: 'all', showNearby: true, undo: null
   };
   if (!P.province(state.form.province)) state.form.province = DEFAULT_FORM.province;
 
@@ -347,7 +347,7 @@
         <div class="grid-2">
           <section class="card" id="summary" aria-live="polite"></section>
           <section class="card map-card">
-            <div class="card-title"><h2>🗺️ แผนที่ทริป</h2><span class="est-tag">ตำแหน่งโดยประมาณ</span></div>
+            <div class="card-title"><h2>🗺️ แผนที่ทริป</h2><div class="title-actions"><span class="est-tag">ตำแหน่งโดยประมาณ</span><button class="btn btn-light btn-sm" data-add-custom>＋ ปักหมุดเอง</button></div></div>
             <div class="map-filter" id="mapFilter" role="group" aria-label="กรองแผนที่ตามวัน"></div>
             <div id="map" role="region" aria-label="แผนที่สถานที่ในแผน"></div>
             <p class="map-note">หมายเลขบนหมุดตรงกับลำดับในแผน · ＋ = สถานที่ใกล้เคียงที่ยังไม่ได้ไป · 🛏️ = ที่พัก · เลือกวันเพื่อดูเวลาเดินทางแต่ละช่วง · เส้นประคือแนวทางโดยประมาณ ไม่ใช่เส้นทางถนนจริง</p>
@@ -512,6 +512,130 @@
   }
 
   // ---------- Map (Leaflet + OpenStreetMap) ----------
+  // ชั้นภาพแผนที่: OpenStreetMap ไม่อนุญาตให้โหลดไทล์จากหน้าเว็บที่เปิดเป็นไฟล์ (file://) — ใช้แผนที่สำรอง Esri แทน
+  // และสลับไปแผนที่สำรองอัตโนมัติถ้าไทล์ OSM โหลดไม่ขึ้นหลายครั้ง
+  function addBaseTiles(map) {
+    const fallbackTiles = () => L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
+    });
+    if (location.protocol === 'file:') { fallbackTiles().addTo(map); return; }
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    let failed = 0;
+    osm.on('tileerror', () => {
+      if (++failed !== 4 || !map._container?.isConnected) return;
+      map.removeLayer(osm);
+      fallbackTiles().addTo(map);
+    });
+  }
+
+  // ---------- ปักหมุดสถานที่เอง (ค้นหาชื่อ หรือแตะบนแผนที่) ----------
+  const toLL = (ll) => [Math.round(ll.lat * 1e5) / 1e5, Math.round(ll.lng * 1e5) / 1e5];
+
+  function locFieldHtml(hasLL) {
+    return `
+      <div class="field loc-field">
+        <span>📍 ตำแหน่งบนแผนที่ <em>(ไม่บังคับ)</em></span>
+        <div class="loc-search">
+          <input type="search" id="locQ" placeholder="ค้นหาชื่อสถานที่ เช่น ร้านกาแฟ วัด ตลาด" autocomplete="off" aria-label="ค้นหาตำแหน่งสถานที่">
+          <button type="button" class="btn btn-light btn-sm" id="locGo">🔎 ค้นหา</button>
+        </div>
+        <div class="loc-results" id="locResults" hidden></div>
+        <div class="loc-map" id="locMap" role="region" aria-label="แผนที่สำหรับปักหมุด"></div>
+        <div class="loc-status" id="locStatus">${hasLL ? '✅ ปักหมุดแล้ว — แตะที่อื่นหรือลากหมุดเพื่อย้าย' : '👆 แตะบนแผนที่เพื่อปักหมุด หรือค้นหาจากชื่อ'}</div>
+        <button type="button" class="link-btn" id="locClear" ${hasLL ? '' : 'hidden'}>ล้างตำแหน่ง</button>
+      </div>`;
+  }
+
+  // ผูกช่องเลือกตำแหน่งในแผ่นล่าง คืนค่า { get ll() } · onName เรียกเมื่อเลือกผลค้นหา (เติมชื่อให้ถ้ายังว่าง)
+  function bindLocField({ ll = null, onName } = {}) {
+    const box = { ll };
+    const el = $('#locMap');
+    const status = $('#locStatus');
+    const p = P.province(state.plan.provinceId);
+    const center = p.center || [13.75, 100.5];
+    if (!window.L) { el.outerHTML = '<div class="map-fallback">โหลดแผนที่ไม่สำเร็จ — ยังเพิ่มรายการโดยไม่ปักหมุดได้</div>'; return box; }
+    const map = L.map(el, { scrollWheelZoom: false, attributionControl: true });
+    addBaseTiles(map);
+    map.setView(ll || center, ll ? 15 : 12);
+    state.pickerMap = map;
+    const icon = L.divIcon({ className: '', html: '<div class="pin pick"><span>★</span></div>', iconSize: [30, 30], iconAnchor: [15, 30] });
+    let marker = null;
+    const place = (pos, label) => {
+      box.ll = pos;
+      if (!marker) {
+        marker = L.marker(pos, { icon, draggable: true }).addTo(map);
+        marker.on('dragend', () => place(toLL(marker.getLatLng())));
+      } else marker.setLatLng(pos);
+      status.textContent = `✅ ปักหมุดแล้ว${label ? `: ${label}` : ''} — แตะที่อื่นหรือลากหมุดเพื่อย้าย`;
+      $('#locClear').hidden = false;
+    };
+    if (ll) place(ll);
+    map.on('click', (e) => place(toLL(e.latlng)));
+    $('#locClear').addEventListener('click', () => {
+      box.ll = null;
+      if (marker) { map.removeLayer(marker); marker = null; }
+      status.textContent = '👆 แตะบนแผนที่เพื่อปักหมุด หรือค้นหาจากชื่อ';
+      $('#locClear').hidden = true;
+    });
+    // ค้นหาด้วย Nominatim (OpenStreetMap) — เรียกเฉพาะตอนผู้ใช้กดค้นหา จำกัดในประเทศไทยและใกล้จังหวัดที่เลือก
+    const search = async () => {
+      const q = $('#locQ').value.trim();
+      const res = $('#locResults');
+      if (q.length < 2) return;
+      res.hidden = false;
+      res.innerHTML = '<div class="loc-msg">กำลังค้นหา…</div>';
+      try {
+        const u = new URL('https://nominatim.openstreetmap.org/search');
+        u.searchParams.set('format', 'jsonv2');
+        u.searchParams.set('q', q);
+        u.searchParams.set('countrycodes', 'th');
+        u.searchParams.set('limit', '6');
+        u.searchParams.set('accept-language', 'th');
+        u.searchParams.set('viewbox', [center[1] - 1, center[0] + 1, center[1] + 1, center[0] - 1].join(','));
+        const r = await fetch(u);
+        if (!r.ok) throw new Error(String(r.status));
+        const list = (await r.json()).map((x) => ({ name: x.name || String(x.display_name).split(',')[0], addr: x.display_name, ll: [Math.round(x.lat * 1e5) / 1e5, Math.round(x.lon * 1e5) / 1e5] }));
+        if (!list.length) { res.innerHTML = '<div class="loc-msg">ไม่พบสถานที่นี้ ลองชื่ออื่น หรือแตะบนแผนที่เพื่อปักหมุดเอง</div>'; return; }
+        res.innerHTML = list.map((x, i) => {
+          const km = P.roadKm(center, x.ll);
+          return `<button type="button" class="loc-item" data-loc="${i}"><b>${esc(x.name)}</b><small>${esc(x.addr)}${km != null ? ` · ห่างตัวเมือง ~${Math.round(km)} กม.` : ''}</small></button>`;
+        }).join('');
+        res.onclick = (e) => {
+          const b = e.target.closest('[data-loc]');
+          if (!b) return;
+          const x = list[Number(b.dataset.loc)];
+          place(x.ll, x.name);
+          map.setView(x.ll, 16);
+          res.hidden = true;
+          onName?.(x.name);
+        };
+      } catch {
+        res.innerHTML = '<div class="loc-msg">ค้นหาไม่สำเร็จ (ต้องต่ออินเทอร์เน็ต) — แตะบนแผนที่เพื่อปักหมุดแทนได้</div>';
+      }
+    };
+    $('#locGo').addEventListener('click', search);
+    $('#locQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+    setTimeout(() => { if (state.pickerMap === map) map.invalidateSize(); }, 150);
+    return box;
+  }
+
+  // เวลาเดินทาง/ระยะทางจากรายการที่มีพิกัดก่อนหน้า (ตามเวลา) ในวันเดียวกัน
+  function legFromPrevious(day, item) {
+    const p = P.province(state.plan.provinceId);
+    if (!item.ll) return { travel: 0, km: null };
+    const t = P.parseTime(item.time);
+    const prev = P.sortItems(day.items).filter((x) => x !== item && x.ll && P.parseTime(x.time) <= t && x.kind !== 'lodging').pop();
+    const from = prev?.ll || p.center;
+    const km = P.roadKm(from, item.ll);
+    return { travel: P.driveMins(from, item.ll) || 0, km: km == null ? null : Math.round(km * 10) / 10 };
+  }
+
+  const typeOptions = (sel) => `<option value="">📌 อื่นๆ</option>` + Object.entries(D.TYPES).map(([k, t]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${t.icon} ${t.label}</option>`).join('');
+
   function initMap() {
     const el = $('#map');
     if (!el) return;
@@ -520,26 +644,7 @@
       return;
     }
     const map = L.map(el, { scrollWheelZoom: false, tap: true });
-    // OpenStreetMap ไม่อนุญาตให้โหลดไทล์จากหน้าเว็บที่เปิดเป็นไฟล์ (file://) — ใช้แผนที่สำรอง Esri แทน
-    // และสลับไปแผนที่สำรองอัตโนมัติถ้าไทล์ OSM โหลดไม่ขึ้นหลายครั้ง
-    const fallbackTiles = () => L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19,
-      attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
-    });
-    if (location.protocol === 'file:') {
-      fallbackTiles().addTo(map);
-    } else {
-      const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
-      }).addTo(map);
-      let failed = 0;
-      osm.on('tileerror', () => {
-        if (++failed !== 4 || state.map !== map) return;
-        map.removeLayer(osm);
-        fallbackTiles().addTo(map);
-      });
-    }
+    addBaseTiles(map);
     map.on('click', () => map.scrollWheelZoom.enable());
     map.on('mouseout', () => map.scrollWheelZoom.disable());
     // ปุ่มในป๊อปอัป (Leaflet หยุดการส่งต่อคลิก จึงผูก event ตอนเปิดป๊อปอัป)
@@ -687,6 +792,7 @@
     openSheet('แก้ไขรายการ', `
       <form id="editForm" novalidate>
         <label class="field"><span>ชื่อรายการ</span><input name="name" required maxlength="120" value="${esc(it.name)}"></label>
+        ${it.kind === 'custom' ? locFieldHtml(!!it.ll) : ''}
         <div class="field-row">
           <label class="field"><span>หมวดค่าใช้จ่าย</span><select name="cat">${catOptions(it.cat)}</select></label>
           <label class="field"><span>ค่าใช้จ่าย (บาท)</span><input name="cost" type="number" inputmode="numeric" min="0" step="10" value="${Math.round(it.cost || 0)}"><small>รวมทั้งกลุ่ม ${state.plan.input.people} คน</small></label>
@@ -704,12 +810,14 @@
         </div>
       </form>`);
     const form = $('#editForm');
+    const loc = it.kind === 'custom' ? bindLocField({ ll: it.ll || null }) : null;
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(form);
       const name = String(fd.get('name') || '').trim();
       if (!name) { $('#editError').textContent = 'กรุณาใส่ชื่อรายการ'; $('#editError').hidden = false; return; }
       it.name = name;
+      if (loc) it.ll = loc.ll || null;
       it.cat = P.CATS[fd.get('cat')] ? fd.get('cat') : it.cat;
       it.cost = Math.max(0, Math.round(Number(fd.get('cost')) || 0));
       it.time = /^\d{2}:\d{2}$/.test(fd.get('time')) ? fd.get('time') : it.time;
@@ -720,6 +828,7 @@
         state.plan.days[di].items = state.plan.days[di].items.filter((x) => x !== it);
         state.plan.days[to].items.push(it);
       }
+      if (it.kind === 'custom') Object.assign(it, legFromPrevious(state.plan.days[to] || state.plan.days[di], it));
       closeSheet();
       commit('แก้ไขรายการแล้ว', it.id);
     });
@@ -745,7 +854,7 @@
     });
   }
 
-  function openAdd(di) {
+  function openAdd(di, startTab = 'suggest') {
     const plan = state.plan;
     const p = P.province(plan.provinceId);
     const day = plan.days[di];
@@ -769,32 +878,40 @@
     openSheet(`เพิ่มรายการ · วันที่ ${day.n}`, `
       <div class="tabs" role="tablist">
         <button role="tab" class="on" data-tab="suggest" aria-selected="true">📍 สถานที่แนะนำ (${list.length})</button>
-        <button role="tab" data-tab="custom" aria-selected="false">✍️ เพิ่มเอง</button>
+        <button role="tab" data-tab="custom" aria-selected="false">✍️ เพิ่มสถานที่เอง</button>
       </div>
       <div data-pane="suggest"><div class="suggest">${suggest}</div></div>
       <form data-pane="custom" id="customForm" hidden novalidate>
-        <label class="field"><span>ชื่อรายการ</span><input name="name" required maxlength="120" placeholder="เช่น ซื้อของฝาก, นวดแผนไทย"></label>
+        <label class="field"><span>ชื่อสถานที่ / รายการ</span><input name="name" required maxlength="120" placeholder="เช่น ร้านกาแฟที่อยากไป, ตลาดนัด, นวดแผนไทย"></label>
+        ${locFieldHtml(false)}
         <div class="field-row">
+          <label class="field"><span>ประเภท</span><select name="type">${typeOptions('')}</select></label>
           <label class="field"><span>หมวดค่าใช้จ่าย</span><select name="cat">${catOptions('fees')}</select></label>
-          <label class="field"><span>ค่าใช้จ่าย (บาท)</span><input name="cost" type="number" inputmode="numeric" min="0" step="10" value="0"><small>รวมทั้งกลุ่ม</small></label>
         </div>
         <div class="field-row">
+          <label class="field"><span>ค่าใช้จ่าย (บาท)</span><input name="cost" type="number" inputmode="numeric" min="0" step="10" value="0"><small>รวมทั้งกลุ่ม</small></label>
           <label class="field"><span>เวลาเริ่ม</span><input name="time" type="time" value="${P.fmtTime(Math.min(lastEnd + 15, 22 * 60))}"></label>
-          <label class="field"><span>ใช้เวลา (นาที)</span><input name="mins" type="number" inputmode="numeric" min="0" step="15" value="60"></label>
         </div>
+        <label class="field"><span>ใช้เวลา (นาที)</span><input name="mins" type="number" inputmode="numeric" min="0" step="15" value="60"></label>
         <label class="field"><span>หมายเหตุ</span><textarea name="note" maxlength="300"></textarea></label>
         <p class="form-error" id="customError" hidden></p>
         <div class="sheet-actions"><button type="submit" class="btn btn-primary">＋ เพิ่มลงแผน</button></div>
       </form>`);
     const body = $('#sheetBody');
-    body.addEventListener('click', (e) => {
-      const tab = e.target.closest('[data-tab]');
-      if (tab) {
-        $$('[data-tab]', body).forEach((b) => { const on = b === tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
-        $$('[data-pane]', body).forEach((pane) => { pane.hidden = pane.dataset.pane !== tab.dataset.tab; });
-        if (tab.dataset.tab === 'custom') $('#customForm [name=name]').focus();
-        return;
+    let loc = null; // สร้างแผนที่ปักหมุดตอนเปิดแท็บ (Leaflet ต้องการกล่องที่มองเห็นได้)
+    const showTab = (name) => {
+      $$('[data-tab]', body).forEach((b) => { const on = b.dataset.tab === name; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); });
+      $$('[data-pane]', body).forEach((pane) => { pane.hidden = pane.dataset.pane !== name; });
+      if (name === 'custom') {
+        if (!loc) loc = bindLocField({ onName: (n) => { const f = $('#customForm [name=name]'); if (f && !f.value.trim()) f.value = n; } });
+        $('#customForm [name=name]').focus({ preventScroll: true });
       }
+    };
+    if (startTab === 'custom') showTab('custom');
+    // ใช้ onclick (แทนที่ของเดิม) — #sheetBody ถูกใช้ซ้ำทุกแผ่น ถ้าใช้ addEventListener ตัวจับคลิกของแผ่นก่อนหน้าจะค้างและทำงานซ้ำ
+    body.onclick = (e) => {
+      const tab = e.target.closest('[data-tab]');
+      if (tab) { showTab(tab.dataset.tab); return; }
       const pick = e.target.closest('[data-pick]');
       if (pick) {
         const item = P.makePlaceItem(plan, pick.dataset.pick, di);
@@ -803,23 +920,27 @@
         closeSheet();
         commit('เพิ่มสถานที่ลงแผนแล้ว', item.id);
       }
-    });
+    };
     $('#customForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const name = String(fd.get('name') || '').trim();
       if (!name) { $('#customError').textContent = 'กรุณาใส่ชื่อรายการ'; $('#customError').hidden = false; return; }
       const cat = P.CATS[fd.get('cat')] ? fd.get('cat') : 'fees';
+      const type = D.TYPES[fd.get('type')] ? fd.get('type') : '';
       const item = {
-        id: P.uid(), kind: 'custom', cat, icon: '📌', name, travel: 0,
+        id: P.uid(), kind: 'custom', cat, name,
+        icon: type ? D.TYPES[type].icon : '📌', type: type || undefined, typeLabel: type ? D.TYPES[type].label : 'สถานที่ของฉัน',
+        ll: loc?.ll || null,
         time: /^\d{2}:\d{2}$/.test(fd.get('time')) ? fd.get('time') : '12:00',
         mins: Math.max(0, Math.round(Number(fd.get('mins')) || 0)),
         cost: Math.max(0, Math.round(Number(fd.get('cost')) || 0)),
         note: String(fd.get('note') || '').trim()
       };
+      Object.assign(item, legFromPrevious(day, item));
       day.items.push(item);
       closeSheet();
-      commit('เพิ่มรายการแล้ว', item.id);
+      commit(item.ll ? 'เพิ่มสถานที่และปักหมุดบนแผนที่แล้ว' : 'เพิ่มรายการแล้ว', item.id);
     });
   }
 
@@ -883,8 +1004,10 @@
   }
   function closeSheet() {
     if ($('#sheet').hidden) return;
+    if (state.pickerMap) { state.pickerMap.off(); state.pickerMap.remove(); state.pickerMap = null; }
     $('#sheet').hidden = true;
     $('#sheetBody').innerHTML = '';
+    $('#sheetBody').onclick = null;
     document.body.classList.remove('locked');
     lastFocus?.focus?.({ preventScroll: true });
   }
@@ -929,6 +1052,7 @@
     if (edit) { openEdit(edit.dataset.edit); return; }
     const del = e.target.closest('[data-del]');
     if (del) { deleteItem(del.dataset.del); return; }
+    if (e.target.closest('[data-add-custom]')) { openAdd(state.mapDay === 'all' ? 0 : state.mapDay, 'custom'); return; }
     const add = e.target.closest('[data-add]');
     if (add) { openAdd(Number(add.dataset.add)); return; }
     const mapBtn = e.target.closest('[data-map]');
