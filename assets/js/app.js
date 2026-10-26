@@ -99,6 +99,8 @@
       load: () => tmdb('/trending/movie/day').then((d) => d.results.map((m) => normTmdb(m, 'movie'))) },
     { id: 'free', kicker: 'Watch Free · No Ads', title: 'ดูฟรีเต็มเรื่อง · คลาสสิกอมตะ', sub: 'ภาพยนตร์สาธารณสมบัติ เล่นได้ทันทีบนเว็บนี้', wide: true,
       load: () => archive(IA_BASE, 'downloads desc', 40) },
+    { id: 'open', kicker: 'Open Movies · Creative Commons', title: 'ภาพยนตร์เปิดเสรีจาก Blender Studio', sub: 'แอนิเมชันและไซไฟคุณภาพสูง เผยแพร่ภายใต้สัญญาอนุญาต Creative Commons', wide: true,
+      load: () => archive(`identifier:(${window.Providers.OPEN_FILMS.map((f) => f.archive).join(' OR ')})`, 'downloads desc', 20) },
     { id: 'now', kicker: 'Now Showing', title: 'กำลังเข้าฉายในโรง', tmdb: true,
       load: () => tmdb('/movie/now_playing', { region: state.region }).then((d) => d.results.map((m) => normTmdb(m, 'movie'))) },
     { id: 'upcoming', kicker: 'Coming Soon', title: 'เร็วๆ นี้', tmdb: true,
@@ -219,7 +221,9 @@
         </div>
         <p class="overview">${esc(it.overview || 'ดูรายละเอียดเพิ่มเติม')}</p>
         <div class="actions">
-          <button class="btn btn-gold" data-key="${esc(keyOf(it))}" data-autoplay="1">${ICON_PLAY}${it.free ? 'เล่นเลย' : 'ดูตัวอย่าง'}</button>
+          ${watchHref(it)
+            ? `<a class="btn btn-gold" href="${esc(watchHref(it))}">${ICON_PLAY}เล่นเลย</a>`
+            : `<button class="btn btn-gold" data-key="${esc(keyOf(it))}" data-autoplay="1">${ICON_PLAY}ดูตัวอย่าง</button>`}
           <button class="btn btn-ghost" data-key="${esc(keyOf(it))}">${ICON_INFO}รายละเอียด</button>
         </div>`;
       content.classList.remove('swap');
@@ -230,6 +234,12 @@
       content.classList.add('swap');
       setTimeout(apply, 600);
     } else apply();
+  }
+
+  // ลิงก์ไปหน้าเล่นวิดีโอ ถ้ามีแหล่งวิดีโอที่ถูกลิขสิทธิ์รองรับเรื่องนี้ (ดู providers.js)
+  function watchHref(it, details = null) {
+    const match = window.Providers.find(it, details);
+    return match ? window.Providers.watchUrl(match.provider.id, match.key) : '';
   }
 
   // ---------- Detail modal ----------
@@ -253,7 +263,7 @@
     const body = $('#modalBody');
     body.innerHTML = '<div class="d-loading"><div class="spinner"></div></div>';
     openModal($('#modal'));
-    if (it.src === 'ia') return renderArchiveDetail(it, autoplay);
+    if (it.src === 'ia') return renderArchiveDetail(it);
     try {
       await renderTmdbDetail(it, autoplay);
     } catch (err) {
@@ -267,29 +277,27 @@
     media.innerHTML = `<iframe src="${esc(src)}" title="${esc(title)}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
   }
 
-  function renderArchiveDetail(it, autoplay) {
+  function renderArchiveDetail(it) {
     const page = `${IA}/details/${encodeURIComponent(it.id)}`;
+    const watch = watchHref(it);
     $('#modalBody').innerHTML = `
       <div class="d-media" style="background-image:url('${esc(it.backdrop)}')">
-        <button class="big-play" aria-label="เล่นภาพยนตร์">${ICON_PLAY}</button>
+        ${watch ? `<a class="big-play" href="${esc(watch)}" aria-label="ดูหนัง">${ICON_PLAY}</a>` : ''}
       </div>
       <div class="d-body">
-        <span class="kicker">Free · Public Domain · No Ads</span>
+        <span class="kicker">Free · Legal · No Ads</span>
         <h2 id="modalTitle">${esc(it.title)}</h2>
         <div class="meta-line">
           ${it.year ? `<span>${esc(it.year)}</span>` : ''}
           <span class="pill">ดูฟรีเต็มเรื่อง</span>
         </div>
         <p class="overview">${esc(it.overview || 'ภาพยนตร์คลาสสิกจากคลัง Internet Archive')}</p>
+        ${watch ? `<div class="actions" style="margin-top:22px"><a class="btn btn-gold" href="${esc(watch)}">${ICON_PLAY}ดูหนัง</a></div>` : ''}
         <div class="d-section">
           <h3>แหล่งที่มา</h3>
           <p class="muted">ภาพยนตร์เรื่องนี้เผยแพร่ผ่าน <a href="${esc(page)}" target="_blank" rel="noopener">Internet Archive</a> ในฐานะสาธารณสมบัติหรือได้รับอนุญาตให้เผยแพร่</p>
         </div>
       </div>`;
-    const media = $('#modalBody .d-media');
-    const play = () => playInto(media, `${IA}/embed/${encodeURIComponent(it.id)}?autoplay=1`, it.title);
-    media.querySelector('.big-play').addEventListener('click', play);
-    if (autoplay) play();
   }
 
   function pickTrailer(videos) {
@@ -311,6 +319,7 @@
     const date = d.release_date || d.first_air_date || '';
     const runtime = d.runtime ? `${Math.floor(d.runtime / 60)} ชม. ${d.runtime % 60} นาที` : (d.number_of_seasons ? `${d.number_of_seasons} ซีซัน` : '');
     const backdrop = d.backdrop_path ? IMG + 'w1280' + d.backdrop_path : it.backdrop || it.poster;
+    const watch = watchHref(it, d);
 
     const wp = d['watch/providers']?.results || {};
     const regionData = wp[state.region] || wp.US;
@@ -352,11 +361,15 @@
           ${d.vote_average ? `<span class="rating">★ ${d.vote_average.toFixed(1)}</span>` : ''}
           ${date ? `<span>${esc(new Date(date).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }))}</span>` : ''}
           ${runtime ? `<span>${esc(runtime)}</span>` : ''}
+          ${watch ? '<span class="pill">ดูฟรีเต็มเรื่อง</span>' : ''}
           ${trailer ? '<span class="pill">มีตัวอย่าง</span>' : ''}
         </div>
         <div class="genres">${(d.genres || []).map((g) => `<span>${esc(g.name)}</span>`).join('')}</div>
         <p class="overview">${esc(overview || 'ยังไม่มีเรื่องย่อ')}</p>
-        ${trailer ? `<div class="actions" style="margin-top:22px"><button class="btn btn-gold" data-play-trailer>${ICON_PLAY}ดูตัวอย่าง</button></div>` : ''}
+        ${watch || trailer ? `<div class="actions" style="margin-top:22px">
+          ${watch ? `<a class="btn btn-gold" href="${esc(watch)}">${ICON_PLAY}ดูหนัง</a>` : ''}
+          ${trailer ? `<button class="btn ${watch ? 'btn-ghost' : 'btn-gold'}" data-play-trailer>${ICON_PLAY}ดูตัวอย่าง</button>` : ''}
+        </div>` : ''}
         <div class="d-section"><h3>ดูได้ที่ไหน (ถูกลิขสิทธิ์)</h3>${providerHtml}</div>
         ${castHtml}
       </div>`;
