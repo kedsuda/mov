@@ -245,7 +245,8 @@
       days: clamp(input.days, 1, 10),
       people: clamp(input.people, 1, 20),
       styles: Array.isArray(input.styles) ? input.styles.filter((s) => D().STYLES.some((x) => x.id === s)) : [],
-      includeTravel: !!input.includeTravel
+      includeTravel: !!input.includeTravel,
+      startDate: /^\d{4}-\d{2}-\d{2}$/.test(input.startDate || '') ? input.startDate : ''
     };
   }
 

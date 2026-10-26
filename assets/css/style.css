@@ -511,3 +511,103 @@ main:focus { outline: none; }
 .loc-status { color: var(--muted); font-size: 13px; }
 .pin.pick { background: var(--grad); }
 .pin.pick span { font-size: 14px; }
+
+/* ---------- การ์ดจังหวัดแบบภาพจริง (กระชับ) ---------- */
+.prov-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.prov { display: block; height: 104px; border-width: 0; border-radius: 16px; box-shadow: var(--shadow-sm); }
+.prov-photo { position: absolute; inset: 0; display: grid; place-items: center; }
+.prov-photo img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s var(--ease); }
+.prov:hover .prov-photo img { transform: scale(1.06); }
+.prov-photo::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10, 20, 40, 0) 35%, rgba(10, 20, 40, .78) 100%); }
+.prov-label { position: absolute; left: 10px; right: 10px; bottom: 8px; z-index: 1; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .45); }
+.prov-label b { display: block; font: 600 15px/1.25 var(--head); }
+.prov-label small { font-size: 11px; opacity: .9; }
+.prov[aria-pressed="true"] { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--coral), var(--shadow); }
+.prov[aria-pressed="true"]::after { z-index: 2; top: 7px; right: 7px; width: 22px; height: 22px; font-size: 13px; }
+.prov-desc { margin: 12px 0 0; color: var(--muted); font-size: 13.5px; }
+.prov-desc b { color: var(--ink); font-weight: 600; }
+
+/* ---------- ขั้นตอนกระชับ ---------- */
+.step { padding-block: 18px; }
+.chips .budget-note { align-self: center; margin: 0 0 0 4px; }
+.trip-row { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 10px; margin-top: 14px; }
+.counter { padding: 12px 14px; }
+.stepper { margin-top: 6px; }
+.stepper button { width: 38px; height: 38px; font-size: 20px; }
+.stepper output { font-size: 24px; }
+.date-box { display: grid; gap: 4px; cursor: pointer; }
+.date-box input { width: 100%; min-height: 40px; margin-top: 4px; padding: 6px 10px; border-radius: 12px; border: 1.5px solid var(--line); background: #fff; font: 600 15px var(--body); color: var(--ink); }
+.date-box input:focus { outline: none; border-color: var(--coral); }
+.date-box small { color: var(--muted); font-size: 12.5px; }
+.style-chips { margin-top: 0; }
+.style-chip[aria-pressed="true"] { border-color: var(--teal); background: #E9FBF8; color: #0F766E; }
+#travelToggle { margin-top: 14px; padding: 12px 14px; }
+
+/* ---------- ภาพรวมงบก่อนสร้างแผน ---------- */
+.overview { margin-top: 20px; padding: 16px; border-radius: 18px; background: linear-gradient(120deg, #FFF8F1, #F1F9FF); border: 1px solid #F4E3D0; }
+.overview.warn { background: #FFF5F5; border-color: #FFD6D6; }
+.ov-head { display: flex; align-items: center; gap: 12px; }
+.ov-head .em { font-size: 28px; }
+.ov-head b { font-family: var(--head); font-weight: 600; }
+.ov-head small { display: block; color: var(--muted); font-size: 13px; }
+.ov-total { margin-left: auto; text-align: right; }
+.ov-total small { display: block; color: var(--muted); font-size: 12px; }
+.ov-total b { font: 700 22px/1.2 var(--head); }
+.ov-bar { display: flex; height: 12px; margin-top: 14px; border-radius: 999px; overflow: hidden; background: #E3EAF4; }
+.ov-bar i { display: block; height: 100%; transition: width .4s var(--ease); }
+.ov-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.ov-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ov-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.ov-legend b { color: var(--ink); font-weight: 600; }
+.ov-legend .left i { background: #E3EAF4; border: 1px solid #C9D3E2; }
+.ov-legend .left b { color: var(--green); }
+.ov-legend .over i { background: var(--red); }
+.ov-legend .over b { color: var(--red); }
+
+/* ---------- วันที่ในแผน + เตือนวันปิด ---------- */
+.day-date { display: block; color: var(--coral); font-size: 12.5px; font-weight: 600; margin-bottom: 2px; }
+.day-nav a small { font-weight: 500; color: var(--muted); font-size: 12px; }
+.open-warn { margin-top: 8px; padding: 6px 10px; border-radius: 10px; background: #FFF4E5; color: #9A4A00; font-size: 12.5px; font-weight: 500; }
+
+/* ---------- แชร์ / เครดิต ---------- */
+.share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.share-opt { display: grid; justify-items: start; gap: 2px; padding: 14px; border-radius: 16px; border: 1.5px solid var(--line); background: #fff; text-align: left; transition: border-color .2s, background .2s; }
+.share-opt:hover { border-color: var(--coral); background: #FFF8F5; }
+.share-opt .em { font-size: 24px; margin-bottom: 4px; }
+.share-opt b { font: 600 15px/1.3 var(--head); }
+.share-opt small { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.share-link { margin-top: 16px; }
+.share-link input { font-size: 13px !important; color: var(--muted); }
+.share-note { font-size: 12.5px; margin-top: -4px; }
+.credits { display: grid; gap: 10px; }
+.credit { display: flex; gap: 12px; align-items: center; }
+.credit img { width: 72px; height: 52px; object-fit: cover; border-radius: 10px; flex: none; }
+.credit b { display: block; font: 600 14px/1.3 var(--head); }
+.credit small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.footer .link-btn { font-size: inherit; }
+
+@media (max-width: 900px) {
+  .prov-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 719px) {
+  /* มือถือ: จังหวัดเป็นแถวเลื่อนแนวนอน ลดการเลื่อนหน้าจอยาว */
+  .prov-grid { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 10px; margin-inline: calc(var(--gutter) * -1); padding: 4px var(--gutter) 8px; scrollbar-width: none; }
+  .prov-grid::-webkit-scrollbar { display: none; }
+  .prov { flex: 0 0 126px; height: 92px; scroll-snap-align: start; }
+  .planner { padding-inline: 16px; }
+  .trip-row { grid-template-columns: 1fr 1fr; }
+  .date-box { grid-column: 1 / -1; grid-template-columns: auto 1fr; align-items: center; column-gap: 12px; }
+  .date-box input { margin-top: 0; }
+  .date-box small { grid-column: 1 / -1; }
+  .ov-total b { font-size: 19px; }
+  .share-grid { grid-template-columns: 1fr; }
+  .share-opt { grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; }
+  .share-opt .em { grid-row: span 2; margin: 0; }
+}
+@media print {
+  .prov-desc, .open-warn { break-inside: avoid; }
+  #map { height: 320px !important; min-height: 0; }
+  .nearby-card { display: none !important; }
+}
+.link-btn { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: var(--sky); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.link-btn:hover { color: var(--coral); }

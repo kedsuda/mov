@@ -108,6 +108,8 @@ const extra = P.unusedPlaces(edit)[0];
 const item = P.makePlaceItem(edit, extra.n, 1);
 check('makePlaceItem builds a place item', item && item.kind === 'place' && item.name === extra.n && /^\d\d:\d\d$/.test(item.time));
 check('unusedPlaces excludes planned places', !P.unusedPlaces(edit).some((pl) => edit.days.some((d) => d.items.some((i) => i.name === pl.n))));
+check('startDate is kept when valid', P.plan({ province: 'nan', days: 2, people: 1, budget: 5000, startDate: '2026-11-07' }).input.startDate === '2026-11-07');
+check('invalid startDate is dropped', P.plan({ province: 'nan', days: 2, people: 1, budget: 5000, startDate: '7/11/2026' }).input.startDate === '');
 check('invalid province throws', (() => { try { P.plan({ province: 'nope', days: 1, people: 1, budget: 1 }); return false; } catch { return true; } })());
 check('input is clamped', (() => { const x = P.plan({ province: 'nan', days: 99, people: 0, budget: -5 }); return x.input.days === 10 && x.input.people === 1 && x.input.budget === 0; })());
 

@@ -27,7 +27,7 @@
   const loadPlans = () => { const v = store.get(KEYS.plans, {}); return v && typeof v === 'object' ? v : {}; };
   const savedList = () => Object.values(loadPlans()).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 
-  const DEFAULT_FORM = { province: 'chiangmai', budget: 8000, days: 3, people: 2, styles: ['nature', 'cafe'], includeTravel: false };
+  const DEFAULT_FORM = { province: 'chiangmai', budget: 8000, days: 3, people: 2, styles: ['nature', 'cafe'], includeTravel: false, startDate: null };
   const state = {
     form: { ...DEFAULT_FORM, ...(store.get(KEYS.form, {}) || {}) },
     plan: null, map: null, pickerMap: null, layers: null, markers: {}, mapDay: 'all', showNearby: true, undo: null
@@ -76,6 +76,8 @@
     document.body.classList.remove('has-bar');
     const m = /^#\/plan\/([\w-]+)/.exec(h);
     $$('.top-link').forEach((a) => a.classList.toggle('on', (a.dataset.nav === 'saved' && h.startsWith('#/saved')) || (a.dataset.nav === 'home' && (h === '#/' || h === ''))));
+    const sh = /^#\/share\/([\w-]+)/.exec(h);
+    if (sh) { openShared(sh[1]); window.scrollTo(0, 0); return; }
     if (m) renderPlan(m[1]);
     else if (h.startsWith('#/saved')) renderSaved();
     else renderHome();
@@ -100,13 +102,182 @@
       <path d="M0 184 C300 178 600 190 900 184 C1140 179 1300 186 1440 183 V190 H0Z" fill="#FFE3BD"/>
     </svg>`;
 
+  // ภาพจังหวัดจาก Wikimedia Commons (assets/js/credits.js) — ถ้าไม่มีภาพใช้ไล่สี + อีโมจิแทน
+  const photoOf = (id) => window.PHOTO_CREDITS?.[id] || null;
+
   function provCard(p, selected) {
+    const ph = photoOf(p.id);
     return `
-      <button type="button" class="prov" data-prov="${p.id}" aria-pressed="${selected}">
-        <span class="prov-top" style="background:${grad(p)}"><span class="prov-emoji" aria-hidden="true">${p.emoji}</span><span class="prov-region">${esc(p.region)}</span></span>
-        <span class="prov-body"><span class="prov-name">${esc(p.name)}</span><span class="prov-blurb">${esc(p.blurb)}</span></span>
+      <button type="button" class="prov" data-prov="${p.id}" aria-pressed="${selected}" aria-label="${esc(p.full)} — ${esc(p.blurb)}">
+        <span class="prov-photo" style="background:${grad(p)}">${ph ? `<img src="${esc(ph.src)}" alt="" loading="lazy" decoding="async">` : `<span class="prov-emoji" aria-hidden="true">${p.emoji}</span>`}</span>
+        <span class="prov-label"><b>${esc(p.name)}</b><small>${esc(p.region)}</small></span>
       </button>`;
   }
+
+  // วันที่: เก็บเป็น YYYY-MM-DD (เวลาท้องถิ่น)
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const parseISO = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+  const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const nextSaturday = () => { const t = new Date(); return isoDate(addDays(t, ((6 - t.getDay() + 7) % 7) || 7)); };
+  const fmtDay = (d, opts = { weekday: 'short', day: 'numeric', month: 'short' }) => d.toLocaleDateString('th-TH', opts);
+  const dayDate = (plan, i) => { const s = parseISO(plan.input.startDate); return s ? addDays(s, i) : null; };
+  // ---------- เตือนวันเปิด-ปิด (อ่านจากหมายเหตุของสถานที่ในข้อมูลตัวอย่าง) ----------
+  const DOW_FULL = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+  function openDays(note) {
+    if (!note) return null;
+    if (/เฉพาะ(เย็น)?วันอาทิตย์/.test(note)) return [0];
+    if (/ศุกร์-อาทิตย์/.test(note)) return [5, 6, 0];
+    if (/เสาร์-อาทิตย์/.test(note)) return [6, 0];
+    if (/ปิดวันจันทร์/.test(note)) return [0, 2, 3, 4, 5, 6];
+    return null;
+  }
+  function openWarning(it, date) {
+    const days = openDays(it.note);
+    if (!days || !date || days.includes(date.getDay())) return '';
+    return `<div class="open-warn">⚠️ วันนี้เป็นวัน${DOW_FULL[date.getDay()]} — สถานที่นี้อาจไม่เปิด ลองแก้ไขย้ายไปวันอื่น</div>`;
+  }
+
+  // ---------- แชร์แผน: เก็บข้อมูลแผนทั้งหมดในลิงก์ (บีบอัด) ไม่ต้องมีเซิร์ฟเวอร์ ----------
+  const b64enc = (bytes) => {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const b64dec = (str) => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const ITEM_KINDS = new Set(['trip', 'local', 'place', 'meal', 'lodging', 'free', 'custom']);
+  const ITEM_KEYS = ['kind', 'cat', 'name', 'time', 'mins', 'cost', 'note', 'll', 'travel', 'km', 'icon', 'type', 'typeLabel', 'zone', 'zoneLabel'];
+
+  async function packPlan(plan) {
+    const data = { v: 1, i: plan.input, t: plan.title, ct: !!plan.customTitle, r: plan.tier, f: plan.feasible, m: plan.minBudget, p: plan.provinceId,
+      d: plan.days.map((d) => d.items.map((it) => ITEM_KEYS.map((k) => it[k] ?? null))) };
+    const bytes = new TextEncoder().encode(JSON.stringify(data));
+    if (window.CompressionStream) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+      return 'z' + b64enc(new Uint8Array(await new Response(stream).arrayBuffer()));
+    }
+    return 'j' + b64enc(bytes);
+  }
+
+  // ถอดลิงก์แชร์ + ตรวจสอบข้อมูลทุกช่อง (ลิงก์มาจากภายนอก ห้ามเชื่อข้อมูลตรงๆ)
+  async function unpackPlan(str) {
+    let bytes = b64dec(str.slice(1));
+    if (str[0] === 'z') {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    } else if (str[0] !== 'j') throw new Error('bad format');
+    const data = JSON.parse(new TextDecoder().decode(bytes));
+    if (data.v !== 1 || !P.province(data.p)) throw new Error('bad plan');
+    const base = P.plan({ ...data.i, province: data.p });
+    const txt = (v, n) => String(v ?? '').slice(0, n);
+    const num = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
+    const days = (Array.isArray(data.d) ? data.d : []).slice(0, base.input.days).map((items, i) => ({
+      n: i + 1,
+      items: (Array.isArray(items) ? items : []).slice(0, 40).map((row) => {
+        const o = Object.fromEntries(ITEM_KEYS.map((k, j) => [k, Array.isArray(row) ? row[j] : null]));
+        const ll = Array.isArray(o.ll) && o.ll.length === 2 && o.ll.every((x) => Number.isFinite(x) && Math.abs(x) <= 180) ? o.ll.map(Number) : null;
+        return {
+          id: P.uid(), kind: ITEM_KINDS.has(o.kind) ? o.kind : 'custom', cat: P.CATS[o.cat] ? o.cat : 'fees',
+          name: txt(o.name, 120) || 'รายการ', time: /^\d{2}:\d{2}$/.test(o.time) ? o.time : '12:00',
+          mins: num(o.mins, 0, 1440), cost: num(o.cost, 0, 1e7), note: txt(o.note, 300), ll,
+          travel: num(o.travel, 0, 600), km: Number.isFinite(o.km) ? Math.round(o.km * 10) / 10 : null,
+          icon: txt(o.icon, 8) || '📌', type: D.TYPES[o.type] ? o.type : undefined, typeLabel: txt(o.typeLabel, 40),
+          zone: txt(o.zone, 40), zoneLabel: txt(o.zoneLabel, 60)
+        };
+      })
+    }));
+    while (days.length < base.input.days) days.push({ n: days.length + 1, items: [] });
+    return { ...base, title: txt(data.t, 80) || base.title, customTitle: !!data.ct, tier: num(data.r, 0, 2), feasible: !!data.f, minBudget: num(data.m, 0, 1e8), days, saved: false, shared: true };
+  }
+
+  const shareBase = () => (location.protocol === 'file:' ? 'https://kedsuda.github.io/mov/' : location.href.split('#')[0]);
+  const shareLink = async (plan) => `${shareBase()}#/share/${await packPlan(plan)}`;
+
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch { /* ignore */ }
+      ta.remove();
+      return ok;
+    }
+  }
+
+  function planText(plan, link) {
+    const s = P.summarize(plan);
+    const lines = [`🧭 ${plan.title}${tripRange(plan) ? ` (${tripRange(plan)})` : ''}`, `งบ ${baht(s.budget)} · ใช้ประมาณ ${baht(s.total)} · ${s.over ? 'เกินงบ' : 'คงเหลือ'} ${baht(Math.abs(s.remaining))}`, ''];
+    plan.days.forEach((d, i) => {
+      const dt = dayDate(plan, i);
+      lines.push(`วันที่ ${d.n}${dt ? ` (${fmtDay(dt)})` : ''}`);
+      for (const it of P.sortItems(d.items)) lines.push(`  ${it.time} ${it.name}${it.cost ? ` — ${baht(it.cost)}` : ''}`);
+      lines.push('');
+    });
+    if (link) lines.push(`ดูแผนเต็มพร้อมแผนที่: ${link}`);
+    lines.push('* ราคาและเวลาเป็นค่าประมาณ ตรวจสอบก่อนเดินทาง');
+    return lines.join('\n');
+  }
+
+  async function openShare() {
+    const plan = state.plan;
+    let link = '';
+    try { link = await shareLink(plan); } catch { /* ยังพิมพ์/คัดลอกข้อความได้ */ }
+    const canNative = typeof navigator.share === 'function';
+    openSheet('แชร์ / พิมพ์แผน', `
+      <div class="share-grid">
+        ${canNative && link ? '<button type="button" class="share-opt" data-share="native"><span class="em">📲</span><b>ส่งให้เพื่อน</b><small>LINE, Messenger และแอปอื่นๆ</small></button>' : ''}
+        ${link ? '<button type="button" class="share-opt" data-share="copy"><span class="em">🔗</span><b>คัดลอกลิงก์</b><small>เพื่อนเปิดแล้วเห็นแผนเดียวกัน</small></button>' : ''}
+        <button type="button" class="share-opt" data-share="text"><span class="em">📝</span><b>คัดลอกเป็นข้อความ</b><small>สรุปรายวันสำหรับวางในแชท</small></button>
+        <button type="button" class="share-opt" data-share="print"><span class="em">🖨️</span><b>พิมพ์ / บันทึก PDF</b><small>เลือก “บันทึกเป็น PDF” ในหน้าพิมพ์</small></button>
+      </div>
+      ${link ? `<label class="field share-link"><span>ลิงก์แผน</span><input readonly id="shareLink" value="${esc(link)}"></label>
+      <p class="muted share-note">🔒 ข้อมูลแผนอยู่ในลิงก์ทั้งหมด ไม่ได้อัปโหลดไปเก็บที่ไหน เพื่อนเปิดแล้วกดบันทึกเป็นแผนของตัวเองได้</p>` : ''}`);
+    const body = $('#sheetBody');
+    body.onclick = async (e) => {
+      const b = e.target.closest('[data-share]');
+      if (!b) return;
+      const how = b.dataset.share;
+      if (how === 'native') {
+        try { await navigator.share({ title: plan.title, text: `แผนเที่ยว ${plan.title}`, url: link }); } catch { /* ผู้ใช้ยกเลิก */ }
+      } else if (how === 'copy') {
+        toast((await copyText(link)) ? 'คัดลอกลิงก์แล้ว ส่งให้เพื่อนได้เลย' : 'คัดลอกไม่สำเร็จ — กดค้างที่ช่องลิงก์เพื่อคัดลอกเอง');
+      } else if (how === 'text') {
+        toast((await copyText(planText(plan, link))) ? 'คัดลอกสรุปแผนแล้ว วางในแชทได้เลย' : 'คัดลอกไม่สำเร็จ');
+      } else if (how === 'print') {
+        closeSheet();
+        setTimeout(() => window.print(), 250);
+      }
+    };
+    $('#shareLink')?.addEventListener('focus', (e) => e.target.select());
+  }
+
+  async function openShared(data) {
+    app.innerHTML = '<div class="wrap"><div class="empty" style="margin-top:32px"><div class="em">⏳</div><h3>กำลังเปิดแผนที่เพื่อนแชร์มา…</h3></div></div>';
+    try {
+      const plan = await unpackPlan(data);
+      state.plan = plan;
+      writePlan(plan);
+      location.replace(`#/plan/${plan.id}`);
+      toast('เปิดแผนที่แชร์มาแล้ว — กด “บันทึกแผน” เพื่อเก็บไว้');
+    } catch {
+      app.innerHTML = '<div class="wrap"><div class="empty" style="margin-top:32px"><div class="em">🔗</div><h3>ลิงก์แผนไม่ถูกต้อง</h3><p>ลิงก์อาจถูกตัดไม่ครบ ลองขอลิงก์ใหม่จากเพื่อน</p><a class="btn btn-primary" href="#/">วางแผนใหม่</a></div></div>';
+    }
+  }
+
+  function openCredits() {
+    const list = D.PROVINCES.map((p) => [p, photoOf(p.id)]).filter(([, c]) => c);
+    openSheet('เครดิตภาพจังหวัด', `
+      <p class="muted" style="margin-top:0">ภาพจาก Wikimedia Commons ใช้ภายใต้สัญญาอนุญาตแบบเปิด (ปรับขนาดเพื่อใช้บนเว็บ)</p>
+      <div class="credits">${list.map(([p, c]) => `
+        <div class="credit"><img src="${esc(c.src)}" alt="" loading="lazy"><div><b>${esc(p.full)}</b><small>${esc(c.title)} · ภาพโดย ${esc(c.artist)}</small>
+        <small><a href="${esc(c.source)}" target="_blank" rel="noopener">ต้นฉบับ</a> · ${c.licenseUrl ? `<a href="${esc(c.licenseUrl)}" target="_blank" rel="noopener">${esc(c.license)}</a>` : esc(c.license)}</small></div></div>`).join('')}</div>`);
+  }
+
+  const tripRange = (plan) => {
+    const s = parseISO(plan.input.startDate);
+    if (!s) return '';
+    const e = addDays(s, plan.input.days - 1);
+    return plan.input.days > 1 ? `${fmtDay(s, { day: 'numeric', month: 'short' })} – ${fmtDay(e, { day: 'numeric', month: 'short', year: '2-digit' })}` : fmtDay(s, { day: 'numeric', month: 'short', year: '2-digit' });
+  };
 
   function savedCard(plan) {
     const p = P.province(plan.provinceId);
@@ -117,7 +288,7 @@
         <div class="saved-top" style="background:${grad(p)}">
           <span class="em" aria-hidden="true">${p.emoji}</span>
           <h3>${esc(plan.title)}</h3>
-          <small>อัปเดต ${dateTh(plan.updatedAt)} · ${esc(D.TIERS[plan.tier]?.label || '')}</small>
+          <small>${tripRange(plan) ? `🗓️ ${esc(tripRange(plan))}` : `อัปเดต ${dateTh(plan.updatedAt)}`} · ${esc(D.TIERS[plan.tier]?.label || '')}</small>
         </div>
         <div class="saved-body">
           <div class="saved-stats">
@@ -135,6 +306,9 @@
 
   function renderHome() {
     const f = state.form;
+    // วันเดินทาง: ครั้งแรกตั้งเป็นเสาร์ถัดไป ถ้าวันที่เก่าเลยไปแล้วก็เลื่อนให้ ('' = ผู้ใช้ไม่ระบุ)
+    const today = parseISO(isoDate(new Date()));
+    if (f.startDate == null || (parseISO(f.startDate) && parseISO(f.startDate) < today)) f.startDate = nextSaturday();
     const saved = savedList();
     app.innerHTML = `
       <section class="hero">
@@ -150,16 +324,15 @@
           <section class="step">
             <div class="step-head"><span class="step-no">1</span><h2>อยากไปจังหวัดไหน?</h2><span class="hint">${D.PROVINCES.length} จังหวัดยอดนิยม</span></div>
             <div class="prov-grid" role="group" aria-label="เลือกจังหวัด">${D.PROVINCES.map((p) => provCard(p, p.id === f.province)).join('')}</div>
+            <p class="prov-desc"><span id="provDesc"></span> <button type="button" class="link-btn" data-credits>เครดิตภาพ</button></p>
           </section>
           <section class="step">
-            <div class="step-head"><span class="step-no">2</span><h2>งบประมาณรวมทั้งทริป</h2></div>
-            <label class="money"><span aria-hidden="true">฿</span><input id="budget" inputmode="numeric" autocomplete="off" aria-label="งบประมาณรวม (บาท)" placeholder="0" value="${f.budget ? Number(f.budget).toLocaleString('th-TH') : ''}"></label>
-            <div class="chips">${[3000, 5000, 8000, 15000, 30000].map((v) => `<button type="button" class="chip" data-budget="${v}" aria-pressed="${f.budget === v}">${baht(v)}</button>`).join('')}</div>
-            <p class="budget-note" id="budgetNote"></p>
-          </section>
-          <section class="step">
-            <div class="step-head"><span class="step-no">3</span><h2>กี่วัน กี่คน?</h2></div>
-            <div class="pair">
+            <div class="step-head"><span class="step-no">2</span><h2>งบ และวันเดินทาง</h2></div>
+            <label class="money"><span aria-hidden="true">฿</span><input id="budget" inputmode="numeric" autocomplete="off" aria-label="งบประมาณรวมทั้งทริป (บาท)" placeholder="งบรวมทั้งทริป" value="${f.budget ? Number(f.budget).toLocaleString('th-TH') : ''}"></label>
+            <div class="chips">${[3000, 5000, 8000, 15000, 30000].map((v) => `<button type="button" class="chip" data-budget="${v}" aria-pressed="${f.budget === v}">${baht(v)}</button>`).join('')}<span class="budget-note" id="budgetNote"></span></div>
+            <div class="trip-row">
+              <label class="counter date-box"><span class="counter-label">🗓️ วันที่ออกเดินทาง</span>
+                <input type="date" id="startDate" value="${esc(f.startDate || '')}" min="${isoDate(new Date())}" aria-describedby="dateHint"><small id="dateHint"></small></label>
               <div class="counter"><span class="counter-label">📅 จำนวนวัน</span>
                 <div class="stepper"><button type="button" data-step="days:-1" aria-label="ลดจำนวนวัน">−</button><output id="daysOut">${f.days}<small>วัน</small></output><button type="button" data-step="days:1" aria-label="เพิ่มจำนวนวัน">+</button></div></div>
               <div class="counter"><span class="counter-label">👥 จำนวนคน</span>
@@ -167,14 +340,11 @@
             </div>
           </section>
           <section class="step">
-            <div class="step-head"><span class="step-no">4</span><h2>ชอบเที่ยวแบบไหน?</h2><span class="hint">เลือกได้หลายแบบ</span></div>
-            <div class="styles">${D.STYLES.map((s) => `<button type="button" class="style" data-style="${s.id}" aria-pressed="${f.styles.includes(s.id)}"><span class="em" aria-hidden="true">${s.icon}</span>${esc(s.label)}</button>`).join('')}</div>
+            <div class="step-head"><span class="step-no">3</span><h2>ชอบเที่ยวแบบไหน?</h2><span class="hint">เลือกได้หลายแบบ</span></div>
+            <div class="chips style-chips">${D.STYLES.map((s) => `<button type="button" class="chip style-chip" data-style="${s.id}" aria-pressed="${f.styles.includes(s.id)}"><span class="em" aria-hidden="true">${s.icon}</span>${esc(s.label)}</button>`).join('')}</div>
+            <label class="toggle" id="travelToggle"><input type="checkbox" id="includeTravel" ${f.includeTravel ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span class="toggle-text"><b>รวมค่าเดินทางไป-กลับจากกรุงเทพฯ</b><small id="travelHint"></small></span></label>
           </section>
-          <section class="step">
-            <div class="step-head"><span class="step-no">5</span><h2>ค่าเดินทางไป-กลับ</h2></div>
-            <label class="toggle" id="travelToggle"><input type="checkbox" id="includeTravel" ${f.includeTravel ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span class="toggle-text"><b>รวมค่าเดินทางจากกรุงเทพฯ</b><small id="travelHint"></small></span></label>
-          </section>
-          <div class="estimate" id="estimate" aria-live="polite"></div>
+          <div class="overview" id="estimate" aria-live="polite"></div>
           <p class="form-error" id="formError" role="alert" hidden></p>
           <button class="btn btn-primary btn-lg btn-block submit" type="submit">✨ จัดแผนเที่ยวให้เลย</button>
         </form>
@@ -196,6 +366,9 @@
       </div>`;
     syncHome();
     bindHome();
+    // มือถือ: แถวจังหวัดเลื่อนแนวนอน — เลื่อนให้เห็นจังหวัดที่เลือกอยู่
+    const sel = $('.prov[aria-pressed="true"]');
+    if (sel) sel.parentElement.scrollLeft = Math.max(0, sel.offsetLeft - sel.parentElement.offsetLeft - 16);
   }
 
   function syncHome() {
@@ -218,25 +391,41 @@
       ? `ประมาณ ${baht(p.fromBangkok.price[0])}–${baht(p.fromBangkok.price[1])} ต่อคน (${p.fromBangkok.mode.join(' / ')})`
       : 'ไม่ต้องรวม — ทริปนี้อยู่ในกรุงเทพฯ';
     const perDay = f.budget / Math.max(1, f.people) / Math.max(1, f.days);
-    $('#budgetNote').textContent = f.budget ? `≈ ${baht(perDay)} ต่อคนต่อวัน` : 'กรอกงบรวมของทั้งกลุ่ม';
+    $('#budgetNote').textContent = f.budget ? `≈ ${baht(perDay)} ต่อคนต่อวัน` : '';
+    $('#provDesc').innerHTML = `<b>${esc(p.full)}</b> · ${esc(p.blurb)}`;
+    const start = parseISO(f.startDate);
+    $('#dateHint').textContent = start ? (f.days > 1 ? `กลับ ${fmtDay(addDays(start, f.days - 1))}` : fmtDay(start)) : 'ไม่ระบุก็ได้';
     store.set(KEYS.form, f);
 
     const est = $('#estimate');
     if (!f.budget) {
-      est.className = 'estimate';
-      est.innerHTML = '<span class="em">💡</span><div><b>กรอกงบเพื่อดูว่าจะได้ทริประดับไหน</b><small>ระบบเลือกที่พัก อาหาร และการเดินทางให้พอดีกับงบ</small></div>';
+      est.className = 'overview';
+      est.innerHTML = '<div class="ov-head"><span class="em">💡</span><div><b>กรอกงบเพื่อดูภาพรวมค่าใช้จ่าย</b><small>ระบบเลือกที่พัก อาหาร และการเดินทางให้พอดีกับงบ</small></div></div>';
       return;
     }
     const plan = P.plan({ ...f, includeTravel: f.includeTravel && canTravel });
     const s = P.summarize(plan);
     const T = D.TIERS[plan.tier];
-    if (!plan.feasible) {
-      est.className = 'estimate warn';
-      est.innerHTML = `<span class="em">⚠️</span><div><b>งบนี้อาจไม่พอสำหรับ ${esc(p.name)} ${f.days} วัน ${f.people} คน</b><small>แนะนำอย่างน้อยประมาณ ${baht(plan.minBudget)} · ยังจัดแผนแบบประหยัดที่สุดให้ดูได้</small></div>`;
-    } else {
-      est.className = 'estimate';
-      est.innerHTML = `<span class="em">${T.icon}</span><div><b>ได้ทริประดับ “${esc(T.label)}”</b><small>${esc(T.lodging)} · ${esc(T.transport)} · ใช้ประมาณ ${baht(s.total)} เหลือ ${baht(s.remaining)}</small></div>`;
-    }
+    const scale = Math.max(s.total, s.budget, 1);
+    const parts = [
+      ['lodging', 'ที่พัก'], ['food', 'อาหาร'], ['transport', 'เดินทาง'], ['fees', 'กิจกรรม/ค่าเข้าชม']
+    ].map(([k, label]) => ({ k, label, v: s.byCat[k], color: P.CATS[k].color, icon: P.CATS[k].icon }));
+    est.className = `overview${plan.feasible ? '' : ' warn'}`;
+    est.innerHTML = `
+      <div class="ov-head">
+        <span class="em">${plan.feasible ? T.icon : '⚠️'}</span>
+        <div>${plan.feasible
+          ? `<b>ภาพรวมงบ · ระดับ “${esc(T.label)}”</b><small>${esc(T.lodging)} · ${esc(T.transport)}</small>`
+          : `<b>งบอาจไม่พอสำหรับ ${esc(p.name)} ${f.days} วัน ${f.people} คน</b><small>แนะนำอย่างน้อยประมาณ ${baht(plan.minBudget)}</small>`}</div>
+        <div class="ov-total"><small>ใช้ประมาณ</small><b>${baht(s.total)}</b></div>
+      </div>
+      <div class="ov-bar" role="img" aria-label="สัดส่วนงบ: ${parts.map((x) => `${x.label} ${baht(x.v)}`).join(', ')}${s.over ? '' : `, คงเหลือ ${baht(s.remaining)}`}">
+        ${parts.map((x) => `<i style="width:${(x.v / scale) * 100}%;background:${x.color}"></i>`).join('')}
+      </div>
+      <div class="ov-legend">
+        ${parts.map((x) => `<span><i style="background:${x.color}"></i>${x.icon} ${x.label} <b>${baht(x.v)}</b></span>`).join('')}
+        <span class="${s.over ? 'over' : 'left'}"><i></i>${s.over ? 'เกินงบ' : 'คงเหลือ'} <b>${baht(Math.abs(s.remaining))}</b></span>
+      </div>`;
   }
 
   function bindHome() {
@@ -271,6 +460,7 @@
       syncHome();
     });
     $('#includeTravel').addEventListener('change', (e) => { state.form.includeTravel = e.target.checked; syncHome(); });
+    $('#startDate').addEventListener('change', (e) => { state.form.startDate = parseISO(e.target.value) ? e.target.value : ''; syncHome(); });
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const f = state.form;
@@ -328,7 +518,7 @@
           <a class="btn btn-ghost btn-sm" href="#/" data-edit-input>← แก้ข้อมูลทริป</a>
           <div class="plan-actions">
             <button class="btn btn-light btn-sm" data-act="regen" title="จัดแผนใหม่จากข้อมูลเดิม">🔄 <span class="lbl">จัดใหม่</span></button>
-            <button class="btn btn-light btn-sm" data-act="print" title="พิมพ์แผน">🖨️ <span class="lbl">พิมพ์</span></button>
+            <button class="btn btn-light btn-sm" data-act="share" title="แชร์ หรือพิมพ์เป็น PDF">📤 <span class="lbl">แชร์/พิมพ์</span></button>
             <button class="btn btn-primary btn-sm" data-act="save" id="saveBtn"></button>
           </div>
         </div>
@@ -337,6 +527,7 @@
           <div class="kicker">แผนเที่ยว${esc(p.full)} · ${esc(p.region)}</div>
           <h1><span id="planTitle">${esc(plan.title)}</span> <button class="icon-btn" data-act="rename" aria-label="แก้ชื่อแผน">✏️</button></h1>
           <div class="meta-chips">
+            ${tripRange(plan) ? `<span>🗓️ ${esc(tripRange(plan))}</span>` : ''}
             <span>📅 ${plan.input.days} วัน ${Math.max(0, plan.input.days - 1)} คืน</span>
             <span>👥 ${plan.input.people} คน</span>
             <span>${T.icon} ระดับ${esc(T.label)}</span>
@@ -358,6 +549,7 @@
         <div id="days"></div>
         <div class="disclaimer"><span>⚠️</span><span>ราคา ค่าเข้าชม เวลาเดินทาง และตำแหน่งบนแผนที่ทั้งหมดเป็น <b>ค่าประมาณจากข้อมูลตัวอย่าง</b> (ปรับปรุง ${esc(D.UPDATED)}) ไม่ใช่ข้อมูลสด กรุณาตรวจสอบราคาและเวลาเปิด-ปิดกับแหล่งข้อมูลทางการก่อนเดินทาง</span></div>
         <div class="plan-foot">
+          <button class="btn btn-primary" data-act="share">📤 แชร์ให้เพื่อน / พิมพ์ PDF</button>
           <a class="btn btn-light" href="#/" data-edit-input>✏️ แก้ข้อมูลทริป</a>
           <a class="btn btn-light" href="#/saved">📚 แผนของฉัน</a>
         </div>
@@ -471,6 +663,7 @@
               ${it.mins ? `<span>⏱️ ${dur(it.mins)}</span>` : ''}
             </div>
             ${it.note ? `<div class="item-note">${esc(it.note)}</div>` : ''}
+            ${openWarning(it, dayDate(state.plan, di))}
           </div>
           <div class="item-side">
             <div class="item-cost ${it.cost ? '' : 'free'}">${it.cost ? baht(it.cost) : 'ฟรี'}${per}</div>
@@ -486,7 +679,7 @@
 
   function renderDays() {
     const plan = state.plan;
-    $('#dayNav').innerHTML = plan.days.map((d, i) => `<a href="#day-${i + 1}" data-jump="${i}"><i style="background:${dayColor(i)}"></i>วันที่ ${d.n}</a>`).join('');
+    $('#dayNav').innerHTML = plan.days.map((d, i) => { const dt = dayDate(plan, i); return `<a href="#day-${i + 1}" data-jump="${i}"><i style="background:${dayColor(i)}"></i>วันที่ ${d.n}${dt ? `<small>${fmtDay(dt, { weekday: 'short', day: 'numeric', month: 'short' })}</small>` : ''}</a>`; }).join('');
     $('#days').innerHTML = plan.days.map((day, di) => {
       const items = P.sortItems(day.items);
       day.items = items;
@@ -502,7 +695,7 @@
         <section class="day" id="day-${di + 1}">
           <header class="day-head">
             <span class="day-badge" style="background:${dayColor(di)};color:${dayColor(di)}"><span style="color:#fff"><small>วันที่</small>${day.n}</span></span>
-            <div><h2>${zones.length ? esc(zones.slice(0, 3).join(' · ')) : 'วันที่ ' + day.n}</h2><p>${placeCount} สถานที่ · ${items.length} รายการ</p></div>
+            <div>${dayDate(plan, di) ? `<span class="day-date">🗓️ ${esc(fmtDay(dayDate(plan, di), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</span>` : ''}<h2>${zones.length ? esc(zones.slice(0, 3).join(' · ')) : 'วันที่ ' + day.n}</h2><p>${placeCount} สถานที่ · ${items.length} รายการ</p></div>
             <div class="day-cost"><b>${baht(total)}</b><small>รวมวันนี้</small></div>
           </header>
           <div class="timeline">${body || '<div class="empty">ยังไม่มีรายการในวันนี้</div>'}</div>
@@ -1025,6 +1218,7 @@
   // ---------- Global events ----------
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) { closeSheet(); return; }
+    if (e.target.closest('[data-credits]')) { openCredits(); return; }
     const editInput = e.target.closest('[data-edit-input]');
     if (editInput && state.plan) { state.form = { ...state.plan.input }; store.set(KEYS.form, state.form); return; }
     const remove = e.target.closest('[data-remove]');
@@ -1042,6 +1236,7 @@
     if (act) {
       const a = act.dataset.act;
       if (a === 'save') savePlan();
+      else if (a === 'share') openShare();
       else if (a === 'print') window.print();
       else if (a === 'rename') rename();
       else if (a === 'regen') openConfirm('จัดแผนใหม่?', 'ระบบจะจัดรายการใหม่จากข้อมูลทริปเดิม รายการที่คุณแก้ไขหรือเพิ่มเองจะถูกแทนที่', '🔄 จัดใหม่', () => regenerate());

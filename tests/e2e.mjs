@@ -256,6 +256,60 @@ await test('low budget warns and suggests a minimum', async () => {
   assert(await waitFor(`!document.querySelector('.alert')`), 'still over budget after using minimum');
 });
 
+// ---------- วันที่ / แชร์ / เครดิต ----------
+const setInput = (sel, value, evt = 'input') => ev(`(() => { const i = document.querySelector(${JSON.stringify(sel)}); i.value = ${JSON.stringify(value)}; i.dispatchEvent(new Event(${JSON.stringify(evt)}, { bubbles: true })); })()`);
+const planSnapshot = () => ev(`JSON.stringify({ total: document.querySelector('#totalSpent').textContent, items: [...document.querySelectorAll('.item-name')].map(n => n.textContent), saved: document.querySelector('#saveBtn').textContent })`).then(JSON.parse);
+
+await test('trip dates are shown on every day and in the header', async () => {
+  const d = JSON.parse(await ev(`JSON.stringify({ days: [...document.querySelectorAll('.day-date')].map(x => x.textContent.trim()), chip: [...document.querySelectorAll('.meta-chips span')].map(s => s.textContent).find(t => t.includes('🗓️')) || '' })`));
+  assert(d.days.length === 2 && d.days.every((t) => /\d{4}/.test(t)) && d.chip, JSON.stringify(d));
+  return d.days.join(' | ');
+});
+await test('share link round-trips the whole plan (same totals and items)', async () => {
+  const before = await planSnapshot();
+  await click('[data-act="share"]');
+  assert(await waitFor(`!!document.querySelector('#shareLink')`), 'no share link');
+  const link = await ev(`document.querySelector('#shareLink').value`);
+  assert(/#\/share\/[\w-]+$/.test(link), link.slice(0, 80));
+  await click('#sheet [data-close]');
+  await go(SITE + link.slice(link.indexOf('#')));
+  assert(await waitFor(`location.hash.startsWith('#/plan/') && !!document.querySelector('#totalSpent')`), 'shared link did not open a plan');
+  const after = await planSnapshot();
+  assert(after.total === before.total && JSON.stringify(after.items) === JSON.stringify(before.items), 'plan differs after share');
+  assert(after.saved.includes('บันทึกแผน'), 'shared plan should start unsaved');
+  return `${link.length} chars · ${after.total} · ${after.items.length} items`;
+});
+await test('tampered share link shows a friendly error', async () => {
+  await go(SITE + '#/share/zNOT-A-REAL-PLAN');
+  assert(await waitFor(`document.body.textContent.includes('ลิงก์แผนไม่ถูกต้อง')`), 'no error message');
+});
+await test('weekday warning for places that open only on certain days', async () => {
+  await go(SITE + '#/');
+  await click('[data-prov="chiangmai"]');
+  await setInput('#startDate', '2026-11-02', 'change'); // วันจันทร์
+  await setInput('#budget', '9000');
+  await click('#planner button[type=submit]');
+  assert(await waitFor(`!!document.querySelector('#days .item')`), 'no plan');
+  // ใส่ถนนคนเดินวันอาทิตย์ลงวันที่ 1 (วันจันทร์) ให้แน่ใจว่ามีกรณีที่ต้องเตือน
+  const sunday = 'ถนนคนเดินวันอาทิตย์ ประตูท่าแพ';
+  if (!(await ev(`[...document.querySelectorAll('#day-1 .item-name')].some(n => n.textContent === ${JSON.stringify(sunday)})`))) {
+    await click('[data-add="0"]');
+    assert(await waitFor(`!!document.querySelector('[data-pick="${sunday}"]')`), 'Sunday market not in suggestions');
+    await click(`[data-pick="${sunday}"]`);
+  }
+  assert(await waitFor(`document.querySelectorAll('.open-warn').length > 0`), 'no warning rendered');
+  const w = await ev(`[...document.querySelectorAll('.open-warn')].map(x => x.closest('.item').querySelector('.item-name').textContent + ': ' + x.textContent.trim()).join(' | ')`);
+  assert(w && w.includes('ถนนคนเดินวันอาทิตย์') && w.includes('จันทร์'), w || 'no warnings');
+  return w.slice(0, 110);
+});
+await test('photo credits list every province photo with license', async () => {
+  await go(SITE + '#/');
+  assert(await waitFor(`document.querySelectorAll('.prov-photo img').length === 12`), 'photos missing');
+  await click('[data-credits]');
+  assert(await waitFor(`document.querySelectorAll('.credit').length === 12 && [...document.querySelectorAll('.credit')].every(c => /CC BY|CC0|Public domain/i.test(c.textContent))`), 'credits incomplete');
+  await click('#sheet [data-close]');
+});
+
 // ---------- มือถือ ----------
 await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
 await test('mobile: no horizontal overflow on home and plan, bottom bar visible', async () => {
