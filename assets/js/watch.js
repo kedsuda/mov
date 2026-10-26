@@ -82,7 +82,82 @@
     player.appendChild(video);
     // เล่นอัตโนมัติถ้าเบราว์เซอร์อนุญาต ไม่งั้นผู้ใช้กดปุ่ม play เอง
     video.play().catch(() => {});
+    addSubtitles(video, m.subtitles || []);
   }
+
+  // ---------- Subtitles ----------
+  const srtToVtt = (s) => 'WEBVTT\n\n' + s.replace(/^﻿/, '').replace(/\r/g, '')
+    .replace(/(\d{1,2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2').trim() + '\n';
+
+  async function addSubtitles(video, subs) {
+    player.dataset.subtitles = '0';
+    if (!subs.length) return;
+    let added = 0;
+    for (const s of subs) {
+      try {
+        const res = await fetch(s.src);
+        if (!res.ok) continue;
+        let text = await res.text();
+        if (s.format === 'srt') text = srtToVtt(text);
+        else if (!/^﻿?WEBVTT/.test(text)) continue;
+        if (!/-->/.test(text)) continue;
+        const track = document.createElement('track');
+        track.kind = 'subtitles';
+        track.label = s.label;
+        track.srclang = s.lang;
+        track.src = URL.createObjectURL(new Blob([text], { type: 'text/vtt' }));
+        video.appendChild(track);
+        added++;
+      } catch { /* ข้ามไฟล์คำบรรยายที่โหลดไม่ได้ */ }
+    }
+    player.dataset.subtitles = String(added);
+    renderSubtitleBar(video);
+  }
+
+  function renderSubtitleBar(video) {
+    const bar = $('#subsBar');
+    if (!bar) return;
+    const tracks = [...video.textTracks];
+    if (!tracks.length) { bar.hidden = true; return; }
+    const draw = () => {
+      const active = tracks.findIndex((t) => t.mode === 'showing');
+      bar.innerHTML = `<small>คำบรรยาย</small>
+        <button class="chip${active < 0 ? ' on' : ''}" data-sub="-1">ปิด</button>
+        ${tracks.map((t, i) => `<button class="chip${i === active ? ' on' : ''}" data-sub="${i}">${esc(t.label)}</button>`).join('')}`;
+    };
+    bar.onclick = (e) => {
+      const b = e.target.closest('[data-sub]');
+      if (!b) return;
+      const n = Number(b.dataset.sub);
+      tracks.forEach((t, i) => { t.mode = i === n ? 'showing' : 'disabled'; });
+      draw();
+    };
+    // เปิดภาษาไทยอัตโนมัติถ้ามี
+    const th = tracks.findIndex((t) => t.language === 'th');
+    if (th >= 0) tracks[th].mode = 'showing';
+    draw();
+    bar.hidden = false;
+  }
+
+  // ---------- Keyboard: Space/K เล่น-หยุด · F เต็มจอ · ←/→ 10 วิ · M ปิดเสียง · C คำบรรยาย ----------
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest?.('input, textarea, select, [contenteditable]') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const video = player.querySelector('video');
+    if (!video) return;
+    const k = e.key.toLowerCase();
+    if (k === ' ' || k === 'k') { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+    else if (k === 'f') { e.preventDefault(); document.fullscreenElement ? document.exitFullscreen() : player.requestFullscreen?.(); }
+    else if (k === 'arrowright') { e.preventDefault(); video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10); }
+    else if (k === 'arrowleft') { e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 10); }
+    else if (k === 'm') video.muted = !video.muted;
+    else if (k === 'c') {
+      const tracks = [...video.textTracks];
+      if (!tracks.length) return;
+      const i = tracks.findIndex((t) => t.mode === 'showing');
+      tracks.forEach((t, j) => { t.mode = j === (i + 1) % (tracks.length + 1) ? 'showing' : 'disabled'; });
+      $('#subsBar [data-sub]') && renderSubtitleBar(video);
+    }
+  });
 
   function iframeHtml(src, title) {
     return `<iframe src="${esc(src)}" title="${esc(title)}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
@@ -118,13 +193,18 @@
 
   // ---------- Info ----------
   function renderInfo(m, provider) {
-    document.title = `${m.title} — LUMIÈRE`;
+    document.title = `${m.title} — MovieHub Thailand`;
     const quality = m.sources?.[0]?.label;
     const preview = !!m.preview;
+    const access = !preview ? 'full' : (m.external ? 'external' : 'trailer');
+    $('#watchInfo').dataset.access = access;
+    const outside = m.freeOutside?.[0] || m.watch?.list?.[0];
     $('#watchInfo').innerHTML = `
       ${preview ? `<div class="preview-note" id="previewNote">
-        <strong>ยังไม่มีวิดีโอเต็มเรื่องที่ถูกลิขสิทธิ์ให้ดูฟรี</strong>
-        <span>${m.trailer ? 'กำลังแสดงตัวอย่างหนังอย่างเป็นทางการ · ' : ''}ดูเต็มเรื่องได้ผ่านบริการที่ถูกกฎหมายด้านล่าง</span>
+        <div class="badges-inline">${L.BADGES[access]}${m.trailer ? L.BADGES.trailer : ''}</div>
+        <strong>${m.freeOutside?.length ? `ดูเต็มเรื่องฟรีถูกกฎหมายได้ที่ ${esc(m.freeOutside.map((p) => p.name).join(', '))}` : m.external ? 'เรื่องนี้รับชมเต็มเรื่องได้ที่บริการภายนอกที่ถูกกฎหมาย' : 'ยังไม่มีช่องทางรับชมเต็มเรื่องที่ถูกลิขสิทธิ์ในภูมิภาคนี้'}</strong>
+        <span>${m.trailer ? 'บนหน้านี้กำลังแสดงตัวอย่างหนังอย่างเป็นทางการ' : 'ยังไม่มีตัวอย่างหนังเรื่องนี้'}${m.external ? ' · กดปุ่มด้านล่างเพื่อไปยังบริการรับชม' : ''}</span>
+        ${outside && m.watch.link ? `<div class="actions"><a class="btn btn-gold btn-sm" id="externalCta" href="${esc(m.watch.link)}" target="_blank" rel="noopener">${ICON.play}${m.freeOutside?.length ? 'ดูเต็มเรื่องฟรีที่' : 'รับชมเต็มเรื่องที่'} ${esc(outside.name)}</a></div>` : ''}
       </div>` : ''}
       <span class="kicker">${esc(provider.name)}</span>
       <h1>${esc(m.title)}</h1>
@@ -133,8 +213,9 @@
         ${m.year ? `<span>${esc(m.year)}</span>` : ''}
         ${m.runtime ? `<span>${esc(m.runtime)}</span>` : ''}
         ${quality ? `<span class="pill">${esc(quality)}</span>` : ''}
-        ${preview ? '<span class="pill">ตัวอย่าง</span>' : '<span class="pill">FREE · NO ADS</span>'}
+        ${preview ? '' : L.BADGES.full + '<span class="pill">FREE · NO ADS</span>'}
       </div>
+      ${preview ? '' : '<div class="subs" id="subsBar" hidden></div><p class="muted kbd-hint">คีย์ลัด: Space เล่น/หยุด · F เต็มจอ · ← → ข้าม 10 วินาที · M ปิดเสียง · C คำบรรยาย</p>'}
       ${m.genres?.length ? `<div class="genres">${m.genres.map((g) => `<span>${esc(g)}</span>`).join('')}</div>` : ''}
       ${m.overview ? `<p class="overview">${esc(m.overview)}</p>` : ''}
       ${preview ? `<div class="d-section" id="watchOptions"><h3>ดูเต็มเรื่องได้ที่ (ถูกลิขสิทธิ์)</h3>${L.watchOptionsHtml(m.watch)}</div>` : ''}

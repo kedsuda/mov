@@ -55,6 +55,7 @@ function details(type, id) {
     credits: { cast: [{ name: 'Actor One', character: 'Hero', profile_path: null }] },
     external_ids: { imdb_id: isSintel ? 'tt1727587' : `tt9${id}` },
     'watch/providers': { results: { TH: { link: `https://www.themoviedb.org/${type}/${id}/watch`,
+      free: [{ provider_id: 192, provider_name: 'YouTube', logo_path: '/youtube.svg' }],
       flatrate: [{ provider_id: 8, provider_name: 'Netflix', logo_path: '/netflix.svg' }],
       rent: [{ provider_id: 2, provider_name: 'Apple TV', logo_path: '/apple.svg' }] } } }
   };
@@ -135,9 +136,36 @@ const gridState = `JSON.stringify((() => { const cards = [...document.querySelec
 const grid = async () => JSON.parse(await ev(gridState));
 const playing = (min = 2) => `(() => { const p = document.querySelector('#player'); return !!p && p.dataset.state === 'playing' && Number(p.dataset.time) > ${min}; })()`;
 
-// ---------- Homepage: catalog ----------
+// ---------- Homepage: full movies first ----------
 await go(SITE);
-await test('catalog grid renders TMDB posters (default "หนังใหม่")', async () => {
+await test('site name is "MovieHub Thailand" (no blank titles)', async () => {
+  const t = JSON.parse(await ev(`JSON.stringify({ title: document.title, brand: [...document.querySelectorAll('.brand-name')].map(b => b.textContent.trim()), tag: document.querySelector('.brand-tag')?.textContent })`));
+  assert(t.title.startsWith('MovieHub Thailand') && t.brand.every((b) => b === 'MovieHub') && t.tag === 'Thailand', JSON.stringify(t));
+  return t.title;
+});
+await test('catalog defaults to playable full movies with "ดูเต็มเรื่อง" badges', async () => {
+  assert(await waitFor(`document.querySelectorAll('#catalogGrid .card').length > 0 && !document.querySelector('#catalogGrid[aria-busy]')`, 40000), 'grid empty');
+  assert(await ev(`document.querySelector('[data-source="free"]').classList.contains('on')`), 'default source is not free');
+  const r = JSON.parse(await ev(`JSON.stringify((() => { const c = [...document.querySelectorAll('#catalogGrid .card')]; return { n: c.length, full: c.filter(x => x.querySelector('.badge.full')?.textContent === 'ดูเต็มเรื่อง').length, playable: c.filter(x => /p=(archive|open)/.test(x.getAttribute('href'))).length }; })())`));
+  assert(r.n === r.full && r.n === r.playable, JSON.stringify(r));
+  return `${r.n}/${r.n} full-movie cards`;
+});
+await test('rows: full movies first, then free-elsewhere (รับชมภายนอก), then trailers', async () => {
+  const order = await ev(`[...document.querySelectorAll('#rows .row')].map(r => r.id.replace('row-', '')).join(',')`);
+  assert(order.startsWith('open,free,external,trending'), order);
+  assert(await waitFor(`document.querySelectorAll('#row-external .card .badge.external').length > 0 && document.querySelectorAll('#row-trending .card .badge.trailer').length > 0`, 30000), 'badges missing');
+  return order;
+});
+await test('hero features a full movie with "ดูเต็มเรื่อง" button', async () => {
+  assert(await waitFor(`!!document.querySelector('#heroContent .btn-gold')`), 'no hero');
+  const h = JSON.parse(await ev(`JSON.stringify({ text: document.querySelector('#heroContent .btn-gold').textContent.trim(), href: document.querySelector('#heroContent .btn-gold').getAttribute('href') })`));
+  assert(h.text === 'ดูเต็มเรื่อง' && /p=open/.test(h.href), JSON.stringify(h));
+  return h.href;
+});
+
+// ---------- Homepage: TMDB catalog ----------
+await go(SITE + '?src=tmdb');
+await test('catalog grid renders TMDB posters ("หนังใหม่")', async () => {
   assert(await waitFor(`document.querySelectorAll('#catalogGrid .card').length > 0`), 'grid empty');
   const g = await grid();
   assert(g.title === 'หนังใหม่', 'title ' + g.title);
@@ -280,11 +308,13 @@ await test('TMDB poster opens watch.html with trailer + legal services', async (
   const providers = await ev(`[...document.querySelectorAll('#watchOptions .provider')].map(p => p.textContent.replace(/\\s+/g, ' ').trim()).join(' | ')`);
   assert(/Netflix/.test(providers), 'providers ' + providers);
   assert(await ev(`!!document.querySelector('#previewNote')`), 'no preview note');
+  const cta = JSON.parse(await ev(`JSON.stringify({ text: document.querySelector('#externalCta')?.textContent.trim(), href: document.querySelector('#externalCta')?.getAttribute('href'), access: document.querySelector('#watchInfo').dataset.access, badge: document.querySelector('#previewNote .badge.external')?.textContent })`));
+  assert(cta.access === 'external' && cta.badge === 'รับชมภายนอก' && /YouTube/.test(cta.text) && /themoviedb\.org\/movie\/\d+\/watch/.test(cta.href), JSON.stringify(cta));
   await shot('watch-trailer');
-  return providers;
+  return `${providers} · CTA "${cta.text}"`;
 });
-await test('TMDB poster of a CC film redirects to the full movie and plays', async () => {
-  await go(SITE);
+await test('TMDB poster of a CC film links straight to the full movie and plays', async () => {
+  await go(SITE + '?src=tmdb');
   assert(await waitFor(`[...document.querySelectorAll('#catalogGrid .card')].some(c => c.textContent.includes('Sintel'))`), 'Sintel not in grid');
   await ev(`[...document.querySelectorAll('#catalogGrid .card')].find(c => c.textContent.includes('Sintel')).click()`);
   assert(await waitFor(playing(2), 60000), 'did not play');
@@ -298,6 +328,29 @@ await test('free poster opens watch.html and the film plays', async () => {
   assert(await waitFor(playing(2), 60000), 'did not play: ' + await ev(`JSON.stringify(document.querySelector('#player')?.dataset)`));
   await shot('watch-playing');
   return href;
+});
+await test('keyboard: Space pauses/plays, F toggles fullscreen request', async () => {
+  const key = (k) => ev(`document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true }))`);
+  await key(' ');
+  assert(await waitFor(`document.querySelector('#player video').paused`, 5000), 'space did not pause');
+  await key(' ');
+  assert(await waitFor(`!document.querySelector('#player video').paused`, 10000), 'space did not resume');
+  const t0 = await ev(`document.querySelector('#player video').currentTime`);
+  await key('ArrowRight');
+  const t1 = await ev(`document.querySelector('#player video').currentTime`);
+  assert(t1 - t0 >= 9, `seek ${t0}→${t1}`);
+  return `seek ${t0.toFixed(1)}s → ${t1.toFixed(1)}s`;
+});
+await test('subtitles load from Archive .srt (Cosmos Laundromat) and display', async () => {
+  await go(SITE + 'watch.html?p=open&id=CosmosLaundromatFirstCycle');
+  assert(await waitFor(`Number(document.querySelector('#player').dataset.subtitles) > 0`, 60000), 'no subtitle tracks');
+  const labels = await ev(`[...document.querySelector('#player video').textTracks].map(t => t.label).join(', ')`);
+  await ev(`document.querySelector('#subsBar [data-sub="0"]').click()`);
+  assert(await waitFor(`(() => { const t = document.querySelector('#player video').textTracks[0]; return t.mode === 'showing' && t.cues && t.cues.length > 0; })()`, 20000), 'cues not loaded');
+  const cues = await ev(`document.querySelector('#player video').textTracks[0].cues.length`);
+  await waitFor(playing(1), 60000);
+  await shot('watch-subtitles');
+  return `${labels} · ${cues} cues`;
 });
 await test('hero "รายละเอียด" still opens the detail modal', async () => {
   await go(SITE);

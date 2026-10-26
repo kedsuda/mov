@@ -53,11 +53,12 @@ window.Lumiere = (() => {
     return res.json();
   }
 
-  function normTmdb(m, fallbackType) {
+  // access: 'trailer' = มีแค่ตัวอย่าง, 'external' = TMDB/JustWatch ระบุว่าดูฟรีถูกกฎหมายได้ที่บริการภายนอก
+  function normTmdb(m, fallbackType, access = 'trailer') {
     const type = m.media_type || fallbackType || 'movie';
     const date = m.release_date || m.first_air_date || '';
     return remember({
-      src: 'tmdb', type, id: String(m.id),
+      src: 'tmdb', type, id: String(m.id), access,
       title: m.title || m.name || '',
       year: date.slice(0, 4), date,
       rating: m.vote_average ? m.vote_average.toFixed(1) : '',
@@ -83,7 +84,7 @@ window.Lumiere = (() => {
       (data?.[k] || []).forEach((p) => {
         if (seen.has(p.provider_id)) return;
         seen.add(p.provider_id);
-        list.push({ name: p.provider_name, logo: p.logo_path ? IMG + 'w92' + p.logo_path : '', label });
+        list.push({ name: p.provider_name, logo: p.logo_path ? IMG + 'w92' + p.logo_path : '', label, kind: k });
       });
     });
     return { link: data?.link || '', region, fallback: region !== settings.region, list };
@@ -166,6 +167,18 @@ window.Lumiere = (() => {
     return isNaN(d) ? '' : d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
   };
 
+  // 'full' = เล่นเต็มเรื่องบนเว็บนี้ได้ (มี provider ที่ไม่ใช่ tmdb รองรับ)
+  function accessOf(it) {
+    const m = watchMatch(it);
+    if (m && m.provider.id !== 'tmdb') return 'full';
+    return it.access === 'external' ? 'external' : 'trailer';
+  }
+  const BADGES = {
+    full: '<span class="badge full">ดูเต็มเรื่อง</span>',
+    external: '<span class="badge external">รับชมภายนอก</span>',
+    trailer: '<span class="badge trailer">ดูตัวอย่าง</span>'
+  };
+
   function cardHtml(it, { isNew = false, showAdded = false } = {}) {
     const sub = [
       it.year,
@@ -179,7 +192,7 @@ window.Lumiere = (() => {
         <div class="poster">
           ${it.poster ? `<img src="${esc(it.poster)}" alt="" loading="lazy" onload="this.classList.add('ok')" onerror="this.remove()">` : ''}
           <span class="ph">${esc(it.title)}</span>
-          <div class="badges">${isNew ? '<span class="badge new">NEW</span>' : ''}${it.free ? '<span class="badge free">ดูฟรี</span>' : '<span class="badge trailer">ตัวอย่าง</span>'}</div>
+          <div class="badges">${isNew ? '<span class="badge new">NEW</span>' : ''}${BADGES[accessOf(it)]}</div>
           <span class="play-hint">${ICON.play}</span>
         </div>
         <span class="title">${esc(it.title)}</span>
@@ -202,6 +215,6 @@ window.Lumiere = (() => {
     $, esc, store, first, stripHtml, debounce, ICON, settings,
     tmdb, normTmdb, pickTrailer, watchOptions, watchOptionsHtml, IMG,
     IA, ARCHIVE_MAX_YEAR, ARCHIVE_BLOCKED, archiveSearch, normArchive,
-    items, keyOf, remember, dedupe, watchMatch, watchHref, cardHtml, dateTh, toast
+    items, keyOf, remember, dedupe, watchMatch, watchHref, accessOf, BADGES, cardHtml, dateTh, toast
   };
 })();

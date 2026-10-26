@@ -1,8 +1,8 @@
 {
-  "name": "lumiere",
+  "name": "moviehub-thailand",
   "version": "2.0.0",
   "private": true,
-  "description": "Luxury, ad-free movie site with live TMDB data and free legal full-length films",
+  "description": "MovieHub Thailand: ad-free movie site with live TMDB data and free legal full-length films",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",

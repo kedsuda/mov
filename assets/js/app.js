@@ -13,12 +13,16 @@
 
   // ---------- Rows (ไฮไลต์) ----------
   const tmdbList = (path, params, type = 'movie') => () => L.tmdb(path, params?.() || {}).then((d) => d.results.map((m) => L.normTmdb(m, type)));
+  // ลำดับ: หนังที่ดูเต็มเรื่องได้บนเว็บนี้ก่อน → ดูฟรีถูกกฎหมายที่บริการอื่น → หนังใหม่/ยอดนิยม (ตัวอย่าง)
   const ROWS = [
-    { id: 'trending', kicker: 'Trending Today', title: 'กำลังมาแรงวันนี้', tmdb: true, load: tmdbList('/trending/movie/day') },
-    { id: 'free', kicker: 'Watch Free · No Ads', title: 'ดูฟรีเต็มเรื่อง · คลาสสิกอมตะ', sub: 'ภาพยนตร์สาธารณสมบัติ เล่นได้ทันทีบนเว็บนี้', wide: true,
-      load: () => L.archiveSearch({ q: 'collection:(feature_films)', rows: 40 }).then((r) => r.items) },
-    { id: 'open', kicker: 'Open Movies · Creative Commons', title: 'ภาพยนตร์เปิดเสรีจาก Blender Studio', sub: 'แอนิเมชันและไซไฟคุณภาพสูง เผยแพร่ภายใต้สัญญาอนุญาต Creative Commons', wide: true,
+    { id: 'open', kicker: 'Full Movies · Creative Commons', title: 'ดูเต็มเรื่อง · ภาพยนตร์จาก Blender Studio', sub: 'แอนิเมชันและไซไฟคุณภาพสูง เล่นเต็มเรื่องได้ทันที ไม่มีโฆษณา', wide: true,
       load: () => L.archiveSearch({ ids: window.Providers.OPEN_FILMS.map((f) => f.archive) }).then((r) => r.items) },
+    { id: 'free', kicker: 'Full Movies · Public Domain', title: 'ดูเต็มเรื่องฟรี · คลาสสิกอมตะ', sub: 'ภาพยนตร์สาธารณสมบัติ เล่นเต็มเรื่องได้ทันทีบนเว็บนี้', wide: true,
+      load: () => L.archiveSearch({ q: 'collection:(feature_films)', rows: 40 }).then((r) => r.items) },
+    { id: 'external', kicker: 'Watch Free Elsewhere · Legal', title: 'ดูฟรีถูกกฎหมายบนบริการอื่น', sub: 'ข้อมูลจาก JustWatch · กดเพื่อดูตัวอย่างและไปยังบริการที่ให้ชมเต็มเรื่องฟรี', tmdb: true,
+      load: () => L.tmdb('/discover/movie', { watch_region: L.settings.region, with_watch_monetization_types: 'free|ads', sort_by: 'popularity.desc' })
+        .then((d) => d.results.map((m) => L.normTmdb(m, 'movie', 'external'))) },
+    { id: 'trending', kicker: 'Trending Today', title: 'กำลังมาแรงวันนี้', tmdb: true, load: tmdbList('/trending/movie/day') },
     { id: 'now', kicker: 'Now Showing', title: 'กำลังเข้าฉายในโรง', tmdb: true, load: tmdbList('/movie/now_playing', () => ({ region: L.settings.region })) },
     { id: 'upcoming', kicker: 'Coming Soon', title: 'เร็วๆ นี้', tmdb: true, load: tmdbList('/movie/upcoming', () => ({ region: L.settings.region })) },
     { id: 'tv', kicker: 'Series of the Week', title: 'ซีรีส์ยอดนิยมสัปดาห์นี้', tmdb: true, load: tmdbList('/trending/tv/week', null, 'tv') },
@@ -66,12 +70,24 @@
     }
   }
 
+  // hero = หนังที่ดูเต็มเรื่องได้ ใช้ภาพพื้นหลังความละเอียดสูงจาก TMDB เมื่อมีคีย์
+  async function loadHeroFull() {
+    if (state.heroFull?.length || !L.settings.key) return state.heroFull || [];
+    const films = window.Providers.OPEN_FILMS.filter((f) => f.tmdb);
+    const list = await Promise.all(films.map((f) => L.tmdb(`/movie/${f.tmdb}`, { language: 'en-US' }).then((d) => L.normTmdb(d, 'movie')).catch(() => null)));
+    state.heroFull = list.filter((it) => it && it.backdrop);
+    return state.heroFull;
+  }
+
   async function loadRows() {
     const markNew = state.seen.size > 0;
-    const results = await Promise.all(activeRows().map((r) => loadRow(r, markNew).then((res) => [r.id, res])));
+    const [results, heroFull] = await Promise.all([
+      Promise.all(activeRows().map((r) => loadRow(r, markNew).then((res) => [r.id, res]))),
+      loadHeroFull()
+    ]);
     const byId = Object.fromEntries(results.map(([id, res]) => [id, res.items]));
 
-    const heroPool = (byId.trending?.length ? byId.trending : byId.free || []).filter((it) => it.backdrop).slice(0, 6);
+    const heroPool = (heroFull.length ? heroFull : byId.open || []).filter((it) => it.backdrop).slice(0, 6);
     if (heroPool.length) setHero(heroPool);
 
     results.forEach(([, res]) => res.items.forEach((it) => state.seen.add(L.keyOf(it))));
@@ -125,17 +141,18 @@
     const apply = () => {
       bg.style.backgroundImage = `url("${it.backdrop.replace('w1280', 'original')}")`;
       bg.classList.remove('fade');
+      const full = L.accessOf(it) === 'full';
       content.innerHTML = `
-        <span class="kicker">${it.free ? 'ดูฟรีเต็มเรื่อง' : 'กำลังมาแรงวันนี้'}</span>
+        <span class="kicker">${full ? 'ดูเต็มเรื่อง · ฟรี ไม่มีโฆษณา' : 'กำลังมาแรงวันนี้'}</span>
         <h1>${esc(it.title)}</h1>
         <div class="meta-line">
           ${it.rating ? `<span class="rating">★ ${esc(it.rating)}</span>` : ''}
           ${it.year ? `<span>${esc(it.year)}</span>` : ''}
-          ${it.free ? '<span class="pill">FREE · NO ADS</span>' : '<span class="pill">HD Trailer</span>'}
+          ${L.BADGES[L.accessOf(it)]}
         </div>
         <p class="overview">${esc(it.overview || 'ดูรายละเอียดเพิ่มเติม')}</p>
         <div class="actions">
-          <a class="btn btn-gold" href="${esc(L.watchHref(it))}">${ICON.play}${it.free ? 'เล่นเลย' : 'ดูตัวอย่าง'}</a>
+          <a class="btn btn-gold" href="${esc(L.watchHref(it))}">${ICON.play}${full ? 'ดูเต็มเรื่อง' : 'ดูตัวอย่าง'}</a>
           <button class="btn btn-ghost" data-key="${esc(L.keyOf(it))}">${ICON.info}รายละเอียด</button>
         </div>`;
       content.classList.remove('swap');
@@ -198,7 +215,7 @@
           <span class="pill">ดูฟรีเต็มเรื่อง</span>
         </div>
         <p class="overview">${esc(it.overview || 'ภาพยนตร์คลาสสิกจากคลัง Internet Archive')}</p>
-        ${watch ? `<div class="actions" style="margin-top:22px"><a class="btn btn-gold" href="${esc(watch)}">${ICON.play}ดูหนัง</a></div>` : ''}
+        ${watch ? `<div class="actions" style="margin-top:22px"><a class="btn btn-gold" href="${esc(watch)}">${ICON.play}ดูเต็มเรื่อง</a></div>` : ''}
         <div class="d-section">
           <h3>แหล่งที่มา</h3>
           <p class="muted">ภาพยนตร์เรื่องนี้เผยแพร่ผ่าน <a href="${esc(page)}" target="_blank" rel="noopener">Internet Archive</a> ในฐานะสาธารณสมบัติหรือได้รับอนุญาตให้เผยแพร่</p>
@@ -250,7 +267,7 @@
         <div class="genres">${(d.genres || []).map((g) => `<span>${esc(g.name)}</span>`).join('')}</div>
         <p class="overview">${esc(overview || 'ยังไม่มีเรื่องย่อ')}</p>
         ${watch || trailer ? `<div class="actions" style="margin-top:22px">
-          ${watch ? `<a class="btn btn-gold" href="${esc(watch)}">${ICON.play}ดูหนัง</a>` : ''}
+          ${watch ? `<a class="btn btn-gold" href="${esc(watch)}">${ICON.play}ดูเต็มเรื่อง</a>` : ''}
           ${trailer ? `<button class="btn ${watch ? 'btn-ghost' : 'btn-gold'}" data-play-trailer>${ICON.play}ดูตัวอย่าง</button>` : ''}
         </div>` : ''}
         <div class="d-section"><h3>ดูได้ที่ไหน (ถูกลิขสิทธิ์)</h3>${L.watchOptionsHtml(L.watchOptions(d))}</div>

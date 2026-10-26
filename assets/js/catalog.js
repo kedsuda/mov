@@ -45,7 +45,8 @@ window.Catalog = (() => {
     seq: 0
   };
   const latest = new Map(); // key → item (แถบเพิ่มเข้ามาล่าสุด)
-  const source = () => (state.source === 'tmdb' && !hasKey() ? 'free' : state.source || (hasKey() ? 'tmdb' : 'free'));
+  // ค่าเริ่มต้น = หนังที่ดูเต็มเรื่องได้บนเว็บนี้
+  const source = () => (state.source === 'tmdb' && hasKey() ? 'tmdb' : 'free');
   const cat = () => CATS.find((c) => c.id === state.cat);
 
   // ---------- Fetch ----------
@@ -76,8 +77,8 @@ window.Catalog = (() => {
     const src = source();
     $('#catalogTitle').textContent = state.q ? `ผลการค้นหา “${state.q}”` : cat().label;
     $('#catalogSub').textContent = src === 'tmdb'
-      ? 'ข้อมูลจาก TMDB · กดโปสเตอร์เพื่อดูตัวอย่างและช่องทางรับชมที่ถูกลิขสิทธิ์'
-      : 'ดูฟรีเต็มเรื่อง · ภาพยนตร์สาธารณสมบัติและ Creative Commons';
+      ? 'หนังใหม่จาก TMDB · กดโปสเตอร์เพื่อดูตัวอย่างและช่องทางรับชมเต็มเรื่องที่ถูกลิขสิทธิ์'
+      : 'ดูเต็มเรื่องบนเว็บนี้ · ภาพยนตร์สาธารณสมบัติและ Creative Commons ฟรี ไม่มีโฆษณา';
     document.querySelectorAll('[data-cat]').forEach((b) => {
       const on = !state.q && b.dataset.cat === state.cat;
       b.classList.toggle('on', on);

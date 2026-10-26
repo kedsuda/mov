@@ -72,6 +72,10 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   font: 700 26px/1 var(--display); letter-spacing: .22em;
   background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+.brand-tag {
+  margin-left: -4px; align-self: flex-end; padding-bottom: 2px;
+  font-size: 10px; font-weight: 500; letter-spacing: .3em; text-transform: uppercase; color: var(--muted);
+}
 .nav { display: flex; gap: 24px; }
 .nav a { color: var(--muted); font-size: 14px; letter-spacing: .02em; position: relative; }
 .nav a:hover { color: var(--text); text-decoration: none; }
@@ -296,6 +300,21 @@ main { position: relative; z-index: 2; margin-top: -9vh; padding-bottom: 40px; }
 .pg svg { width: 18px; height: 18px; }
 .pg-gap { color: var(--dim); padding: 0 4px; }
 .badge.trailer { background: rgba(8, 8, 10, .7); color: var(--text); border: 1px solid rgba(255, 255, 255, .2); }
+.badge.full { background: var(--gold-grad); color: #1a1406; }
+.badge.external { background: rgba(40, 110, 200, .85); color: #fff; }
+.meta-line .badge, .badges-inline .badge { display: inline-block; font-size: 11px; letter-spacing: .08em; }
+.badges-inline { display: flex; gap: 6px; margin-bottom: 6px; }
+.preview-note .actions { margin-top: 10px; }
+.subs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; }
+.subs small { color: var(--dim); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; margin-right: 4px; }
+.chip {
+  height: 32px; padding: 0 14px; border-radius: 999px; font-size: 13px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+}
+.chip:hover { border-color: var(--line-gold); color: var(--text); }
+.chip.on { border-color: var(--gold); color: var(--gold-light); background: rgba(212, 175, 55, .1); }
+.kbd-hint { font-size: 12px !important; }
+.player video::cue { font-family: var(--body); background: rgba(0, 0, 0, .7); }
 .link-btn { border: 0; background: none; padding: 0; color: var(--gold-light); text-decoration: underline; }
 .live.error i { background: var(--dim); animation: none; }
 

@@ -48,6 +48,69 @@ fs.writeFileSync(
   `// สร้างอัตโนมัติโดย scripts/build.mjs — อย่าแก้ไขไฟล์นี้ใน dist/\nwindow.CONFIG = ${JSON.stringify(config, null, 2)};\n`
 );
 
+// ---------- Subtitles ----------
+// ไฟล์คำบรรยายใน Internet Archive ไม่ส่ง CORS header เบราว์เซอร์จึงโหลดตรงไม่ได้
+// ตอน build จึงดาวน์โหลด .srt/.vtt ของหนังที่คัดไว้ แปลงเป็น WebVTT แล้วเก็บไว้ใน dist/subs/ (same-origin)
+// ข้ามได้ด้วย SKIP_SUBTITLES=1
+const IA = 'https://archive.org';
+const srtToVtt = (s) => 'WEBVTT\n\n' + s.replace(/^﻿/, '').replace(/\r/g, '')
+  .replace(/(\d{1,2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2').trim() + '\n';
+
+async function fetchText(url, ms = 20000) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(ms) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+async function buildSubtitles() {
+  const providersSrc = fs.readFileSync(path.join(root, 'assets/js/providers.js'), 'utf8');
+  const coreSrc = fs.readFileSync(path.join(root, 'assets/js/core.js'), 'utf8');
+  const ids = new Set([...providersSrc.matchAll(/archive: '([\w.-]+)'/g)].map((m) => m[1]));
+  const maxYear = /ARCHIVE_MAX_YEAR = (\d+)/.exec(coreSrc)?.[1] || '1970';
+  const search = new URL(IA + '/advancedsearch.php');
+  search.searchParams.set('q', `collection:(feature_films) AND mediatype:(movies) AND licenseurl:(*publicdomain*) AND year:[1890 TO ${maxYear}]`);
+  search.searchParams.append('fl[]', 'identifier');
+  search.searchParams.append('sort[]', 'downloads desc');
+  search.searchParams.set('rows', env('SUBTITLE_TOP_N', '60'));
+  search.searchParams.set('output', 'json');
+  try {
+    JSON.parse(await fetchText(search)).response.docs.forEach((d) => ids.add(d.identifier));
+  } catch (err) { console.warn(`  ! subtitle search failed: ${err.message}`); }
+
+  const manifest = {};
+  let files = 0;
+  const queue = [...ids];
+  async function worker() {
+    for (let id = queue.shift(); id; id = queue.shift()) {
+      try {
+        const meta = JSON.parse(await fetchText(`${IA}/metadata/${encodeURIComponent(id)}`));
+        const subs = (meta.files || []).filter((f) => /\.(srt|vtt)$/i.test(f.name) && f.private !== 'true').slice(0, 8);
+        for (const f of subs) {
+          let text = await fetchText(`${IA}/download/${encodeURIComponent(id)}/${f.name.split('/').map(encodeURIComponent).join('/')}`);
+          if (/\.srt$/i.test(f.name)) text = srtToVtt(text);
+          if (!/^﻿?WEBVTT/.test(text) || !/-->/.test(text)) continue;
+          const name = path.basename(f.name).replace(/[^\w.-]/g, '_').replace(/\.(srt|vtt)$/i, '.vtt');
+          fs.mkdirSync(path.join(out, 'subs', id), { recursive: true });
+          fs.writeFileSync(path.join(out, 'subs', id, name), text);
+          (manifest[id] ||= []).push({ src: `subs/${id}/${name}`, file: f.name });
+          files++;
+        }
+      } catch (err) { console.warn(`  ! subtitles for ${id}: ${err.message}`); }
+    }
+  }
+  await Promise.all(Array.from({ length: 6 }, worker));
+  fs.mkdirSync(path.join(out, 'subs'), { recursive: true });
+  fs.writeFileSync(path.join(out, 'subs/index.json'), JSON.stringify(manifest));
+  console.log(`  Subtitles: ${files} files for ${Object.keys(manifest).length} of ${ids.size} films`);
+}
+
+if (env('SKIP_SUBTITLES') === '1') {
+  fs.mkdirSync(path.join(out, 'subs'), { recursive: true });
+  fs.writeFileSync(path.join(out, 'subs/index.json'), '{}');
+} else {
+  await buildSubtitles();
+}
+
 // ---------- Validate ----------
 const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true })
   .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
