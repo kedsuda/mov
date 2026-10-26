@@ -520,10 +520,26 @@
       return;
     }
     const map = L.map(el, { scrollWheelZoom: false, tap: true });
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // OpenStreetMap ไม่อนุญาตให้โหลดไทล์จากหน้าเว็บที่เปิดเป็นไฟล์ (file://) — ใช้แผนที่สำรอง Esri แทน
+    // และสลับไปแผนที่สำรองอัตโนมัติถ้าไทล์ OSM โหลดไม่ขึ้นหลายครั้ง
+    const fallbackTiles = () => L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
-    }).addTo(map);
+      attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
+    });
+    if (location.protocol === 'file:') {
+      fallbackTiles().addTo(map);
+    } else {
+      const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
+      }).addTo(map);
+      let failed = 0;
+      osm.on('tileerror', () => {
+        if (++failed !== 4 || state.map !== map) return;
+        map.removeLayer(osm);
+        fallbackTiles().addTo(map);
+      });
+    }
     map.on('click', () => map.scrollWheelZoom.enable());
     map.on('mouseout', () => map.scrollWheelZoom.disable());
     // ปุ่มในป๊อปอัป (Leaflet หยุดการส่งต่อคลิก จึงผูก event ตอนเปิดป๊อปอัป)
