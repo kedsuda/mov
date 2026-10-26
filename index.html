@@ -21,11 +21,12 @@
       <span class="brand-name">LUMIÈRE</span>
     </a>
     <nav class="nav" aria-label="หมวดหมู่">
-      <a href="#row-trending">มาแรง</a>
-      <a href="#row-free">ดูฟรี</a>
-      <a href="#row-now">ในโรง</a>
-      <a href="#row-upcoming">เร็วๆ นี้</a>
-      <a href="#row-tv">ซีรีส์</a>
+      <a href="#latest">ล่าสุด</a>
+      <a href="#catalog" data-cat="new">หนังใหม่</a>
+      <a href="#catalog" data-cat="action">แอ็กชัน</a>
+      <a href="#catalog" data-cat="horror">สยองขวัญ</a>
+      <a href="#catalog" data-cat="anime">อนิเมะ</a>
+      <a href="#rows">ไฮไลต์</a>
     </nav>
     <div class="top-actions">
       <label class="search">
@@ -54,20 +55,55 @@
     <div id="keyNotice" class="notice" hidden>
       <div>
         <strong>ปลดล็อกหนังใหม่ล่าสุดแบบเรียลไทม์</strong>
-        <p>ใส่ TMDB API Key (ฟรี) เพื่อแสดงหนังมาแรง หนังเข้าโรง ตัวอย่างหนัง และช่องทางรับชมถูกลิขสิทธิ์ ระหว่างนี้คุณยังดูหนังคลาสสิกเต็มเรื่องได้ฟรีด้านล่าง</p>
+        <p>ใส่ TMDB API Key (ฟรี) เพื่อแสดงหนังใหม่ทุกหมวด หนังมาแรง ตัวอย่างหนัง และช่องทางรับชมถูกลิขสิทธิ์ ระหว่างนี้คุณยังดูหนังเต็มเรื่องฟรีได้ด้านล่าง</p>
       </div>
       <button class="btn btn-gold" data-open-settings>ใส่ API Key</button>
     </div>
 
-    <section id="searchView" class="search-view" hidden>
+    <section class="row wide" id="latest">
       <header class="row-head">
         <div>
-          <span class="kicker">Search</span>
-          <h2 id="searchTitle">ผลการค้นหา</h2>
+          <span class="kicker">Just Added</span>
+          <h2>เพิ่มเข้ามาล่าสุด</h2>
+          <div class="row-sub">หนังดูฟรีที่เพิ่งเข้าคลัง เรียงตามวันที่เพิ่ม · อัปเดตอัตโนมัติ</div>
         </div>
-        <button class="btn btn-ghost" id="clearSearch">ล้างการค้นหา</button>
+        <div class="row-nav">
+          <button class="icon-btn" data-scroll="-1" aria-label="เลื่อนซ้าย"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+          <button class="icon-btn" data-scroll="1" aria-label="เลื่อนขวา"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+        </div>
       </header>
-      <div class="grid" id="searchGrid"></div>
+      <p class="row-error" id="latestError" hidden></p>
+      <div class="track" id="latestTrack">
+        <div class="skeleton sk-card"></div><div class="skeleton sk-card"></div><div class="skeleton sk-card"></div><div class="skeleton sk-card"></div><div class="skeleton sk-card"></div>
+      </div>
+    </section>
+
+    <section class="catalog" id="catalog" aria-labelledby="catalogTitle">
+      <header class="catalog-head">
+        <div>
+          <span class="kicker">Browse Movies</span>
+          <h2 id="catalogTitle">หนังใหม่</h2>
+          <div class="row-sub" id="catalogSub"></div>
+        </div>
+        <div class="catalog-tools">
+          <button class="btn btn-ghost btn-sm" id="clearSearch" hidden>ล้างการค้นหา</button>
+          <div class="segmented" role="group" aria-label="แหล่งข้อมูล">
+            <button data-source="tmdb">หนังทั้งหมด</button>
+            <button data-source="free">ดูฟรีเต็มเรื่อง</button>
+          </div>
+        </div>
+      </header>
+      <nav class="cat-tabs" role="tablist" aria-label="หมวดหมู่">
+        <button role="tab" data-cat="new">หนังใหม่</button>
+        <button role="tab" data-cat="action">แอ็กชัน</button>
+        <button role="tab" data-cat="comedy">ตลก</button>
+        <button role="tab" data-cat="horror">สยองขวัญ</button>
+        <button role="tab" data-cat="anime">อนิเมะ</button>
+        <button role="tab" data-cat="scifi">ไซไฟ</button>
+      </nav>
+      <div class="catalog-error" id="catalogError" role="alert" hidden></div>
+      <div class="grid" id="catalogGrid"></div>
+      <nav class="pager" id="pager" aria-label="แบ่งหน้า"></nav>
     </section>
 
     <div id="rows"></div>
@@ -132,7 +168,9 @@
   <div class="toast" id="toast" role="status" hidden></div>
 
   <script src="assets/js/config.js"></script>
+  <script src="assets/js/core.js"></script>
   <script src="assets/js/providers.js"></script>
+  <script src="assets/js/catalog.js"></script>
   <script src="assets/js/app.js"></script>
 </body>
 </html>
