@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>เที่ยวพอดีงบ — วางแผนเที่ยวตามงบประมาณ</title>
   <meta name="description" content="กรอกจังหวัด งบประมาณ จำนวนวัน จำนวนคน และสไตล์การเที่ยว แล้วรับแผนเที่ยวรายวันพร้อมแผนที่และค่าใช้จ่ายโดยประมาณ แก้ไขและบันทึกได้">
-  <meta name="theme-color" content="#FF7A59">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23FF7A59'/%3E%3Cstop offset='1' stop-color='%23FFB547'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M32 12c-8.3 0-15 6.5-15 14.6C17 37.5 32 52 32 52s15-14.5 15-25.4C47 18.5 40.3 12 32 12z' fill='%23fff'/%3E%3Ccircle cx='32' cy='27' r='6' fill='%23FF7A59'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#F97316">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23F97316'/%3E%3Cstop offset='1' stop-color='%23F59E0B'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M32 12c-8.3 0-15 6.5-15 14.6C17 37.5 32 52 32 52s15-14.5 15-25.4C47 18.5 40.3 12 32 12z' fill='%23fff'/%3E%3Ccircle cx='32' cy='27' r='6' fill='%23F97316'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
   <link rel="stylesheet" href="assets/css/style.css">
 </head>
@@ -18,13 +18,13 @@
     <div class="wrap topbar-in">
       <a class="logo" href="#/" aria-label="เที่ยวพอดีงบ หน้าหลัก">
         <span class="logo-mark" aria-hidden="true">
-          <svg viewBox="0 0 40 40"><path d="M20 5c-6.6 0-12 5.2-12 11.7C8 25.4 20 36 20 36s12-10.6 12-19.3C32 10.2 26.6 5 20 5z" fill="#fff"/><circle cx="20" cy="17" r="4.6" fill="#FF7A59"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2.1 6.3-6.3 2.1 2.1-6.3z"/></svg>
         </span>
-        <span class="logo-text">เที่ยว<b>พอดีงบ</b></span>
+        <span class="logo-text">เที่ยว<b>พอดีงบ</b><small>Budget Trip Planner</small></span>
       </a>
       <nav class="top-nav" aria-label="เมนูหลัก">
-        <a href="#/" class="top-link" data-nav="home">วางแผนใหม่</a>
-        <a href="#/saved" class="top-link" data-nav="saved">แผนของฉัน <span class="count" id="savedCount" hidden>0</span></a>
+        <a href="#/" class="top-link" data-nav="home"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>วางแผนใหม่</a>
+        <a href="#/saved" class="top-link" data-nav="saved"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="m9 10 2 2 4-4"/></svg>ทริปที่บันทึกไว้ <span class="count" id="savedCount" hidden>0</span></a>
       </nav>
     </div>
   </header>
@@ -33,7 +33,7 @@
 
   <footer class="footer">
     <div class="wrap">
-      <p><b>เที่ยวพอดีงบ</b> · วางแผนเที่ยวตามงบประมาณ</p>
+      <div class="footer-top"><p><b>เที่ยวพอดีงบ</b> · วางแผนเที่ยวไทยตามงบประมาณ</p><p>© 2026 เที่ยวพอดีงบ · ข้อมูลตัวอย่างและค่าประมาณ</p></div>
       <p class="fine">สถานที่ ราคา เวลาเดินทาง และตำแหน่งบนแผนที่เป็น <b>ข้อมูลตัวอย่างและค่าประมาณ</b> (ปรับปรุง <span id="dataUpdated"></span>) ไม่ใช่ข้อมูลสด เพราะยังไม่ได้เชื่อม API แผนที่หรือแหล่งข้อมูลราคาจริง กรุณาตรวจสอบเวลาเปิด-ปิดและราคาก่อนเดินทาง · แผนที่บันทึกจะเก็บไว้ในเบราว์เซอร์นี้เท่านั้น · แผนที่ © ผู้ร่วมพัฒนา OpenStreetMap · ภาพจังหวัดจาก Wikimedia Commons <button type="button" class="link-btn" data-credits>(เครดิตภาพ)</button></p>
     </div>
   </footer>

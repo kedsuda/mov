@@ -86,31 +86,35 @@
   }
 
   // ---------- Home ----------
-  const HERO_ART = `
-    <svg class="hero-art" viewBox="0 0 1440 190" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
-      <defs>
-        <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#56C1F5"/><stop offset="1" stop-color="#8ED8FA"/></linearGradient>
-        <linearGradient id="hillA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7FD9B9"/><stop offset="1" stop-color="#4FC49D"/></linearGradient>
-        <linearGradient id="hillB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B7EBD6"/><stop offset="1" stop-color="#93DEC2"/></linearGradient>
-      </defs>
-      <circle cx="1210" cy="58" r="40" fill="#FFC85C"/><circle cx="1210" cy="58" r="58" fill="#FFC85C" opacity=".22"/>
-      <g fill="#fff" opacity=".92"><ellipse cx="230" cy="40" rx="62" ry="16"/><ellipse cx="270" cy="30" rx="40" ry="16"/><ellipse cx="980" cy="52" rx="56" ry="14"/><ellipse cx="1015" cy="43" rx="34" ry="13"/></g>
-      <path d="M0 132 L120 86 L230 120 L360 64 L500 122 L620 96 L760 128 L900 74 L1040 118 L1180 90 L1300 124 L1440 98 V190 H0Z" fill="url(#hillB)"/>
-      <path d="M0 150 L150 112 L280 146 L420 104 L560 150 L700 122 L860 156 L1010 118 L1160 152 L1300 126 L1440 150 V190 H0Z" fill="url(#hillA)"/>
-      <path d="M0 160 C240 150 480 172 720 162 C960 152 1200 170 1440 160 V190 H0Z" fill="url(#sea)"/>
-      <g fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".7"><path d="M120 176 q20 -8 40 0 t40 0"/><path d="M620 180 q20 -8 40 0 t40 0"/><path d="M1120 176 q20 -8 40 0 t40 0"/></g>
-      <path d="M0 184 C300 178 600 190 900 184 C1140 179 1300 186 1440 183 V190 H0Z" fill="#FFE3BD"/>
-    </svg>`;
-
   // ภาพจังหวัดจาก Wikimedia Commons (assets/js/credits.js) — ถ้าไม่มีภาพใช้ไล่สี + อีโมจิแทน
   const photoOf = (id) => window.PHOTO_CREDITS?.[id] || null;
+
+  // ไอคอนเส้น (แนว Lucide) แบบ inline — ไม่ต้องโหลดไลบรารีเพิ่ม
+  const ICONS = {
+    wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+    calc: '<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M8 6h8M16 14v4M16 10h.01M12 10h.01M8 10h.01M12 14h.01M8 14h.01M12 18h.01M8 18h.01"/>',
+    calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    sparkles: '<path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/><path d="M19 3v4M17 5h4"/>',
+    arrow: '<path d="M5 12h14M12 5l7 7-7 7"/>',
+    crown: '<path d="M2 20h20M3 7l5 5 4-7 4 7 5-5-2 11H5z"/>',
+    sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+    map: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>',
+    route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>'
+  };
+  const icon = (n, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]}</svg>`;
+
+  function stepHead(no, title, sub, badge = '') {
+    return `<div class="step-head"><span class="step-no">${no}</span><div class="step-title"><h2>${title}</h2><p>${sub}</p></div>${badge ? `<span class="hint">${badge}</span>` : ''}</div>`;
+  }
 
   function provCard(p, selected) {
     const ph = photoOf(p.id);
     return `
       <button type="button" class="prov" data-prov="${p.id}" aria-pressed="${selected}" aria-label="${esc(p.full)} — ${esc(p.blurb)}">
-        <span class="prov-photo" style="background:${grad(p)}">${ph ? `<img src="${esc(ph.src)}" alt="" loading="lazy" decoding="async">` : `<span class="prov-emoji" aria-hidden="true">${p.emoji}</span>`}</span>
-        <span class="prov-label"><b>${esc(p.name)}</b><small>${esc(p.region)}</small></span>
+        <span class="prov-photo" style="background:${grad(p)}">${ph ? `<img src="${esc(ph.src)}" alt="" loading="lazy" decoding="async">` : `<span class="prov-emoji" aria-hidden="true">${p.emoji}</span>`}<span class="prov-region">${esc(p.region)}</span></span>
+        <span class="prov-body"><b class="prov-name">${esc(p.name)}</b><small class="prov-blurb">${esc(p.blurb)}</small></span>
       </button>`;
   }
 
@@ -283,9 +287,11 @@
     const p = P.province(plan.provinceId);
     if (!p) return '';
     const s = P.summarize(plan);
+    const ph = photoOf(p.id);
     return `
       <article class="saved-card">
-        <div class="saved-top" style="background:${grad(p)}">
+        <div class="saved-top${ph ? ' has-photo' : ''}" style="background:${grad(p)}">
+          ${ph ? `<img class="cover" src="${esc(ph.src)}" alt="" loading="lazy" decoding="async">` : ''}
           <span class="em" aria-hidden="true">${p.emoji}</span>
           <h3>${esc(plan.title)}</h3>
           <small>${tripRange(plan) ? `🗓️ ${esc(tripRange(plan))}` : `อัปเดต ${dateTh(plan.updatedAt)}`} · ${esc(D.TIERS[plan.tier]?.label || '')}</small>
@@ -313,40 +319,48 @@
     app.innerHTML = `
       <section class="hero">
         <div class="wrap hero-in">
-          <span class="hero-badge">🧭 วางแผนเที่ยวไทยตามงบ</span>
-          <h1>เที่ยวให้คุ้ม <span class="hl">พอดีงบ</span></h1>
-          <p>บอกจังหวัด งบ จำนวนวัน และสไตล์ที่ชอบ เราจัดแผนรายวัน พร้อมแผนที่และค่าใช้จ่ายโดยประมาณให้ทันที</p>
+          <span class="hero-badge">${icon('crown')}วางแผนท่องเที่ยวอย่างสมบูรณ์แบบ คุมงบได้ดั่งใจ</span>
+          <h1>ออกแบบทริปในฝัน<br><span class="hl">คุ้มค่า ตรงใจ ในงบที่พอดี</span></h1>
+          <p>เลือกจังหวัด งบประมาณ ระยะเวลา และสไตล์เดินทางของคุณ<br class="br-wide"> ระบบจะจัดสรรงบ คำนวณค่าใช้จ่าย และวางแผนรายวันพร้อมแผนที่ให้อัตโนมัติ</p>
         </div>
-        ${HERO_ART}
       </section>
-      <div class="wrap">
+      <div class="wrap home-wrap">
         <form class="planner" id="planner" novalidate>
           <section class="step">
-            <div class="step-head"><span class="step-no">1</span><h2>อยากไปจังหวัดไหน?</h2><span class="hint">${D.PROVINCES.length} จังหวัดยอดนิยม</span></div>
+            ${stepHead(1, 'เลือกจังหวัดปลายทาง', `สำรวจ ${D.PROVINCES.length} จุดหมายยอดนิยมทั่วประเทศไทย`, 'ยอดนิยมปี 2026')}
             <div class="prov-grid" role="group" aria-label="เลือกจังหวัด">${D.PROVINCES.map((p) => provCard(p, p.id === f.province)).join('')}</div>
             <p class="prov-desc"><span id="provDesc"></span> <button type="button" class="link-btn" data-credits>เครดิตภาพ</button></p>
           </section>
           <section class="step">
-            <div class="step-head"><span class="step-no">2</span><h2>งบ และวันเดินทาง</h2></div>
-            <label class="money"><span aria-hidden="true">฿</span><input id="budget" inputmode="numeric" autocomplete="off" aria-label="งบประมาณรวมทั้งทริป (บาท)" placeholder="งบรวมทั้งทริป" value="${f.budget ? Number(f.budget).toLocaleString('th-TH') : ''}"></label>
-            <div class="chips">${[3000, 5000, 8000, 15000, 30000].map((v) => `<button type="button" class="chip" data-budget="${v}" aria-pressed="${f.budget === v}">${baht(v)}</button>`).join('')}<span class="budget-note" id="budgetNote"></span></div>
+            ${stepHead(2, 'งบประมาณรวมทั้งทริป', 'กำหนดงบประมาณรวมที่ต้องการใช้')}
+            <div class="budget-panel">
+              <label class="money"><span class="money-label">${icon('wallet')}งบประมาณที่ระบุ</span><span class="money-in"><span class="cur" aria-hidden="true">฿</span><input id="budget" inputmode="numeric" autocomplete="off" aria-label="งบประมาณรวมทั้งทริป (บาท)" placeholder="0" value="${f.budget ? Number(f.budget).toLocaleString('th-TH') : ''}"></span></label>
+              <div class="chips">${[3000, 5000, 8000, 15000, 30000].map((v) => `<button type="button" class="chip" data-budget="${v}" aria-pressed="${f.budget === v}">${baht(v)}</button>`).join('')}</div>
+              <div class="avg-row"><span>${icon('calc')}ค่าใช้จ่ายเฉลี่ยประเมิน</span><span><b id="budgetNote">–</b> / คน / วัน</span></div>
+            </div>
+          </section>
+          <section class="step">
+            ${stepHead(3, 'วันเดินทางและผู้ร่วมทริป', 'ระบุเพื่อจัดสรรที่พักและการเดินทาง')}
             <div class="trip-row">
-              <label class="counter date-box"><span class="counter-label">🗓️ วันที่ออกเดินทาง</span>
-                <input type="date" id="startDate" value="${esc(f.startDate || '')}" min="${isoDate(new Date())}" aria-describedby="dateHint"><small id="dateHint"></small></label>
-              <div class="counter"><span class="counter-label">📅 จำนวนวัน</span>
+              <label class="counter date-box"><span class="c-icon c-amber">${icon('calendar')}</span><span class="c-text"><small>วันที่ออกเดินทาง</small><b>เริ่มทริป</b></span>
+                <span class="date-in"><input type="date" id="startDate" value="${esc(f.startDate || '')}" min="${isoDate(new Date())}" aria-describedby="dateHint"><small id="dateHint"></small></span></label>
+              <div class="counter"><span class="c-icon c-orange">${icon('clock')}</span><span class="c-text"><small>ระยะเวลาทริป</small><b>จำนวนวัน</b></span>
                 <div class="stepper"><button type="button" data-step="days:-1" aria-label="ลดจำนวนวัน">−</button><output id="daysOut">${f.days}<small>วัน</small></output><button type="button" data-step="days:1" aria-label="เพิ่มจำนวนวัน">+</button></div></div>
-              <div class="counter"><span class="counter-label">👥 จำนวนคน</span>
+              <div class="counter"><span class="c-icon c-sky">${icon('users')}</span><span class="c-text"><small>ผู้ร่วมเดินทาง</small><b>จำนวนคน</b></span>
                 <div class="stepper"><button type="button" data-step="people:-1" aria-label="ลดจำนวนคน">−</button><output id="peopleOut">${f.people}<small>คน</small></output><button type="button" data-step="people:1" aria-label="เพิ่มจำนวนคน">+</button></div></div>
             </div>
           </section>
           <section class="step">
-            <div class="step-head"><span class="step-no">3</span><h2>ชอบเที่ยวแบบไหน?</h2><span class="hint">เลือกได้หลายแบบ</span></div>
-            <div class="chips style-chips">${D.STYLES.map((s) => `<button type="button" class="chip style-chip" data-style="${s.id}" aria-pressed="${f.styles.includes(s.id)}"><span class="em" aria-hidden="true">${s.icon}</span>${esc(s.label)}</button>`).join('')}</div>
-            <label class="toggle" id="travelToggle"><input type="checkbox" id="includeTravel" ${f.includeTravel ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span class="toggle-text"><b>รวมค่าเดินทางไป-กลับจากกรุงเทพฯ</b><small id="travelHint"></small></span></label>
+            ${stepHead(4, 'สไตล์การเที่ยวที่ชอบ', 'เลือกได้มากกว่า 1 ข้อ')}
+            <div class="styles">${D.STYLES.map((s) => `<button type="button" class="style" data-style="${s.id}" aria-pressed="${f.styles.includes(s.id)}"><span class="em" aria-hidden="true">${s.icon}</span>${esc(s.label)}</button>`).join('')}</div>
           </section>
-          <div class="overview" id="estimate" aria-live="polite"></div>
+          <section class="step">
+            ${stepHead(5, 'การเดินทางข้ามจังหวัด', 'ตัวเลือกงบประมาณพาหนะเดินทาง')}
+            <label class="toggle" id="travelToggle"><span class="toggle-text"><b>รวมค่าเดินทางไป-กลับจากกรุงเทพฯ</b><small id="travelHint"></small></span><input type="checkbox" id="includeTravel" ${f.includeTravel ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>
+            <div class="overview" id="estimate" aria-live="polite"></div>
+          </section>
           <p class="form-error" id="formError" role="alert" hidden></p>
-          <button class="btn btn-primary btn-lg btn-block submit" type="submit">✨ จัดแผนเที่ยวให้เลย</button>
+          <button class="btn btn-primary btn-lg btn-block submit" type="submit">${icon('sparkles')}<span>สร้างแผนเที่ยวให้เลย</span>${icon('arrow')}</button>
         </form>
 
         ${saved.length ? `
@@ -356,11 +370,11 @@
         </section>` : ''}
 
         <section class="section">
-          <div class="section-head"><h2>ใช้งานง่ายใน 3 ขั้นตอน</h2></div>
+          <div class="section-head center"><h2>สัมผัสประสบการณ์วางแผนทริปง่ายๆ</h2></div>
           <div class="how">
-            <div class="how-card"><span class="em" style="background:#FFF1EC">📝</span><div><h3>กรอกข้อมูลทริป</h3><p>เลือกจังหวัด งบ วัน คน และสไตล์ที่ชอบ</p></div></div>
-            <div class="how-card"><span class="em" style="background:#E9FBF8">🗺️</span><div><h3>รับแผนรายวัน + แผนที่</h3><p>สถานที่ เวลา เวลาเดินทาง และค่าใช้จ่ายแยกหมวด</p></div></div>
-            <div class="how-card"><span class="em" style="background:#EEF4FF">💾</span><div><h3>ปรับแต่งและบันทึก</h3><p>แก้ไข ลบ เพิ่มรายการ แล้วบันทึกไว้ดูภายหลัง</p></div></div>
+            <div class="how-card"><span class="em c-amber">${icon('sliders')}</span><div><h3>1. กำหนดความต้องการ</h3><p>ระบุจังหวัด งบประมาณ จำนวนวัน คน และสไตล์การท่องเที่ยวที่คุณชอบ</p></div></div>
+            <div class="how-card"><span class="em c-orange">${icon('map')}</span><div><h3>2. รับแผนรายวัน + แผนที่</h3><p>ระบบจัดตารางเวลา สถานที่ เวลาเดินทาง และแจกแจงค่าใช้จ่ายแยกหมวด</p></div></div>
+            <div class="how-card"><span class="em c-green">${icon('sparkles')}</span><div><h3>3. เที่ยวสบายอย่างมั่นใจ</h3><p>แก้ไข บันทึก แชร์ หรือพิมพ์แผนได้ทันที ไม่ต้องกังวลว่างบจะบานปลาย</p></div></div>
           </div>
         </section>
       </div>`;
@@ -391,7 +405,7 @@
       ? `ประมาณ ${baht(p.fromBangkok.price[0])}–${baht(p.fromBangkok.price[1])} ต่อคน (${p.fromBangkok.mode.join(' / ')})`
       : 'ไม่ต้องรวม — ทริปนี้อยู่ในกรุงเทพฯ';
     const perDay = f.budget / Math.max(1, f.people) / Math.max(1, f.days);
-    $('#budgetNote').textContent = f.budget ? `≈ ${baht(perDay)} ต่อคนต่อวัน` : '';
+    $('#budgetNote').textContent = f.budget ? baht(perDay) : '–';
     $('#provDesc').innerHTML = `<b>${esc(p.full)}</b> · ${esc(p.blurb)}`;
     const start = parseISO(f.startDate);
     $('#dateHint').textContent = start ? (f.days > 1 ? `กลับ ${fmtDay(addDays(start, f.days - 1))}` : fmtDay(start)) : 'ไม่ระบุก็ได้';
@@ -400,7 +414,7 @@
     const est = $('#estimate');
     if (!f.budget) {
       est.className = 'overview';
-      est.innerHTML = '<div class="ov-head"><span class="em">💡</span><div><b>กรอกงบเพื่อดูภาพรวมค่าใช้จ่าย</b><small>ระบบเลือกที่พัก อาหาร และการเดินทางให้พอดีกับงบ</small></div></div>';
+      est.innerHTML = '<div class="ov-head"><span class="em">' + icon('wallet') + '</span><div><b>กรอกงบเพื่อดูภาพรวมค่าใช้จ่าย</b><small>ระบบเลือกที่พัก อาหาร และการเดินทางให้พอดีกับงบ</small></div></div>';
       return;
     }
     const plan = P.plan({ ...f, includeTravel: f.includeTravel && canTravel });
@@ -413,9 +427,9 @@
     est.className = `overview${plan.feasible ? '' : ' warn'}`;
     est.innerHTML = `
       <div class="ov-head">
-        <span class="em">${plan.feasible ? T.icon : '⚠️'}</span>
+        <span class="em">${plan.feasible ? icon('sparkles') : '⚠️'}</span>
         <div>${plan.feasible
-          ? `<b>ภาพรวมงบ · ระดับ “${esc(T.label)}”</b><small>${esc(T.lodging)} · ${esc(T.transport)}</small>`
+          ? `<b>ระดับการท่องเที่ยวที่แนะนำ <span class="tier-badge">${T.icon} ${esc(T.label)}</span></b><small>${esc(T.lodging)} · ${esc(T.transport)}</small>`
           : `<b>งบอาจไม่พอสำหรับ ${esc(p.name)} ${f.days} วัน ${f.people} คน</b><small>แนะนำอย่างน้อยประมาณ ${baht(plan.minBudget)}</small>`}</div>
         <div class="ov-total"><small>ใช้ประมาณ</small><b>${baht(s.total)}</b></div>
       </div>
@@ -522,8 +536,8 @@
             <button class="btn btn-primary btn-sm" data-act="save" id="saveBtn"></button>
           </div>
         </div>
-        <section class="trip-hero" style="background:${grad(p)}">
-          <span class="em-bg" aria-hidden="true">${p.emoji}</span>
+        <section class="trip-hero${photoOf(p.id) ? ' has-photo' : ''}" style="background:${grad(p)}">
+          ${photoOf(p.id) ? `<img class="cover" src="${esc(photoOf(p.id).src)}" alt="" decoding="async">` : '<span class="em-bg" aria-hidden="true">' + p.emoji + '</span>'}
           <div class="kicker">แผนเที่ยว${esc(p.full)} · ${esc(p.region)}</div>
           <h1><span id="planTitle">${esc(plan.title)}</span> <button class="icon-btn" data-act="rename" aria-label="แก้ชื่อแผน">✏️</button></h1>
           <div class="meta-chips">
