@@ -23,8 +23,8 @@
   --shadow-sm: 0 1px 2px rgba(20, 32, 54, .06);
   --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 18px 40px -22px rgba(15, 23, 42, .25);
   --shadow-lg: 0 20px 50px -10px rgba(15, 23, 42, .10), 0 10px 20px -5px rgba(249, 115, 22, .06);
-  --head: "Prompt", "Noto Sans Thai", system-ui, sans-serif;
-  --body: "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --head: "Sarabun", "TH Sarabun New", "TH SarabunPSK", system-ui, sans-serif;
+  --body: "Sarabun", "TH Sarabun New", "TH SarabunPSK", system-ui, -apple-system, "Segoe UI", sans-serif;
   --gutter: clamp(16px, 4vw, 32px);
   --ease: cubic-bezier(.2, .8, .2, 1);
   color-scheme: light;
@@ -810,10 +810,10 @@ body { background: linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 100%) fixed; colo
 }
 
 /* =========================================================
-   เลย์เอาต์หน้าแรกแบบตัวอย่าง: 5 ขั้นตอน การ์ดไอคอน ฟอนต์ Prompt
+   เลย์เอาต์หน้าแรกแบบตัวอย่าง: 5 ขั้นตอน การ์ดไอคอน ฟอนต์สารบรรณ (Sarabun)
    ========================================================= */
-:root { --body: "Prompt", "Noto Sans Thai", system-ui, sans-serif; }
-body { font-size: 15px; }
+:root { --body: var(--head); }
+body { font-size: 16.5px; }
 .ic { width: 18px; height: 18px; flex: none; }
 .top-link .ic { width: 16px; height: 16px; }
 .home-wrap { max-width: 960px; }
@@ -945,3 +945,13 @@ body { font-size: 15px; }
   .counter .stepper { gap: 6px; }
   .stepper output { min-width: 48px; }
 }
+
+/* สารบรรณตัวเล็กกว่า Prompt — ขยายตัวหนังสือขนาดเล็กให้อ่านง่าย */
+.prov-blurb { font-size: 12.5px; }
+.prov-photo .prov-region { font-size: 11.5px; }
+.step-title p { font-size: 13.5px; }
+.c-text small { font-size: 12px; }
+.hero-badge { font-size: 14px; }
+.est-tag, .step-head .hint { font-size: 12.5px; }
+/* ใช้สารบรรณทั้งเว็บ รวมแผนที่ Leaflet (ปุ่มซูม ป้ายเครดิต ป๊อปอัป) และช่องกรอกข้อมูล */
+body, button, input, select, textarea, .leaflet-container, .leaflet-popup-content { font-family: var(--body); }
