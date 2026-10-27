@@ -27,7 +27,7 @@
   const loadPlans = () => { const v = store.get(KEYS.plans, {}); return v && typeof v === 'object' ? v : {}; };
   const savedList = () => Object.values(loadPlans()).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 
-  const DEFAULT_FORM = { province: 'chiangmai', budget: 8000, days: 3, people: 2, styles: ['nature', 'cafe'], includeTravel: false, startDate: null };
+  const DEFAULT_FORM = { province: 'chiangmai', budget: 8000, days: 3, people: 2, styles: ['nature', 'cafe'], includeTravel: false, startDate: null, mode: 'auto', needs: [], mealCap: 0 };
   const state = {
     form: { ...DEFAULT_FORM, ...(store.get(KEYS.form, {}) || {}) },
     plan: null, map: null, pickerMap: null, layers: null, markers: {}, mapDay: 'all', showNearby: true, undo: null
@@ -149,12 +149,14 @@
   };
   const b64dec = (str) => Uint8Array.from(atob(str.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
   const ITEM_KINDS = new Set(['trip', 'local', 'place', 'meal', 'lodging', 'free', 'custom']);
-  const ITEM_KEYS = ['kind', 'cat', 'name', 'time', 'mins', 'cost', 'note', 'll', 'travel', 'km', 'icon', 'type', 'typeLabel', 'zone', 'zoneLabel'];
+  // เพิ่มคีย์ใหม่ต่อท้ายเท่านั้น — ลิงก์/ไฟล์เก่าที่ไม่มีคีย์นั้นจะได้ค่า null
+  const ITEM_KEYS = ['kind', 'cat', 'name', 'time', 'mins', 'cost', 'note', 'll', 'travel', 'km', 'icon', 'type', 'typeLabel', 'zone', 'zoneLabel', 'access'];
+
+  const packData = (plan) => ({ v: 1, i: plan.input, t: plan.title, ct: !!plan.customTitle, r: plan.tier, f: plan.feasible, m: plan.minBudget, p: plan.provinceId,
+    d: plan.days.map((d) => d.items.map((it) => ITEM_KEYS.map((k) => it[k] ?? null))) });
 
   async function packPlan(plan) {
-    const data = { v: 1, i: plan.input, t: plan.title, ct: !!plan.customTitle, r: plan.tier, f: plan.feasible, m: plan.minBudget, p: plan.provinceId,
-      d: plan.days.map((d) => d.items.map((it) => ITEM_KEYS.map((k) => it[k] ?? null))) };
-    const bytes = new TextEncoder().encode(JSON.stringify(data));
+    const bytes = new TextEncoder().encode(JSON.stringify(packData(plan)));
     if (window.CompressionStream) {
       const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
       return 'z' + b64enc(new Uint8Array(await new Response(stream).arrayBuffer()));
@@ -169,8 +171,12 @@
       const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
       bytes = new Uint8Array(await new Response(stream).arrayBuffer());
     } else if (str[0] !== 'j') throw new Error('bad format');
-    const data = JSON.parse(new TextDecoder().decode(bytes));
-    if (data.v !== 1 || !P.province(data.p)) throw new Error('bad plan');
+    return planFromData(JSON.parse(new TextDecoder().decode(bytes)));
+  }
+
+  // สร้างแผนจากข้อมูลภายนอก (ลิงก์แชร์ / ไฟล์สำรอง) — ตรวจทุกช่อง
+  function planFromData(data) {
+    if (!data || data.v !== 1 || !P.province(data.p)) throw new Error('bad plan');
     const base = P.plan({ ...data.i, province: data.p });
     const txt = (v, n) => String(v ?? '').slice(0, n);
     const num = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
@@ -185,7 +191,7 @@
           mins: num(o.mins, 0, 1440), cost: num(o.cost, 0, 1e7), note: txt(o.note, 300), ll,
           travel: num(o.travel, 0, 600), km: Number.isFinite(o.km) ? Math.round(o.km * 10) / 10 : null,
           icon: txt(o.icon, 8) || '📌', type: D.TYPES[o.type] ? o.type : undefined, typeLabel: txt(o.typeLabel, 40),
-          zone: txt(o.zone, 40), zoneLabel: txt(o.zoneLabel, 60)
+          zone: txt(o.zone, 40), zoneLabel: txt(o.zoneLabel, 60), access: o.access === 'hard' || o.access === 'some' ? o.access : ''
         };
       })
     }));
@@ -195,6 +201,48 @@
 
   const shareBase = () => (location.protocol === 'file:' ? 'https://kedsuda.github.io/mov/' : location.href.split('#')[0]);
   const shareLink = async (plan) => `${shareBase()}#/share/${await packPlan(plan)}`;
+
+  // ---------- สำรอง/ย้ายแผน: ส่งออกเป็นไฟล์ .json แล้วนำเข้าในเครื่องอื่น ----------
+  const BACKUP_APP = 'tiew-podee-ngob';
+  const isIso = (s) => typeof s === 'string' && s.length < 40 && !isNaN(Date.parse(s));
+  function downloadPlans(plans, name) {
+    const file = { app: BACKUP_APP, type: 'plans', v: 1, exportedAt: new Date().toISOString(),
+      plans: plans.map((pl) => ({ id: pl.id, createdAt: pl.createdAt, updatedAt: pl.updatedAt, data: packData(pl) })) };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 1)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}-${isoDate(new Date())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  // นำเข้าไฟล์สำรอง: แผนที่มีอยู่แล้ว (id เดียวกัน) จะถูกแทนที่เมื่อไฟล์ใหม่กว่าเท่านั้น
+  async function importPlans(file) {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast('ไฟล์ใหญ่เกินไป (เกิน 5 MB)'); return; }
+    let json;
+    try { json = JSON.parse(await file.text()); } catch { toast('อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ .json ที่ส่งออกจากเที่ยวพอดีงบ'); return; }
+    if (!json || json.app !== BACKUP_APP || json.type !== 'plans' || !Array.isArray(json.plans)) { toast('ไฟล์นี้ไม่ใช่ไฟล์สำรองแผนของเที่ยวพอดีงบ'); return; }
+    const all = loadPlans();
+    const now = new Date().toISOString();
+    let added = 0, updated = 0, skipped = 0, bad = 0;
+    for (const row of json.plans.slice(0, 300)) {
+      let plan;
+      try { plan = planFromData(row?.data); } catch { bad++; continue; }
+      const id = typeof row.id === 'string' && /^trip-[a-z0-9]{4,40}$/.test(row.id) ? row.id : plan.id;
+      Object.assign(plan, { id, saved: true, shared: false, createdAt: isIso(row.createdAt) ? row.createdAt : now, updatedAt: isIso(row.updatedAt) ? row.updatedAt : now });
+      const old = all[id];
+      if (old && String(old.updatedAt) >= plan.updatedAt) { skipped++; continue; }
+      if (old) updated++; else added++;
+      all[id] = plan;
+    }
+    if ((added || updated) && !store.set(KEYS.plans, all)) { toast('บันทึกไม่สำเร็จ — พื้นที่เก็บข้อมูลของเบราว์เซอร์เต็มหรือถูกปิด'); return; }
+    updateSavedCount();
+    const parts = [added && `เพิ่ม ${added} แผน`, updated && `อัปเดต ${updated} แผน`, skipped && `ข้าม ${skipped} แผนที่มีอยู่แล้ว`, bad && `อ่านไม่ได้ ${bad} แผน`].filter(Boolean);
+    toast(parts.length ? `นำเข้าแล้ว: ${parts.join(' · ')}` : 'ไม่มีแผนในไฟล์นี้');
+    if (location.hash.startsWith('#/saved')) renderSaved(); else location.hash = '#/saved';
+  }
 
   async function copyText(text) {
     try { await navigator.clipboard.writeText(text); return true; } catch {
@@ -232,6 +280,7 @@
         ${link ? '<button type="button" class="share-opt" data-share="copy"><span class="em">🔗</span><b>คัดลอกลิงก์</b><small>เพื่อนเปิดแล้วเห็นแผนเดียวกัน</small></button>' : ''}
         <button type="button" class="share-opt" data-share="text"><span class="em">📝</span><b>คัดลอกเป็นข้อความ</b><small>สรุปรายวันสำหรับวางในแชท</small></button>
         <button type="button" class="share-opt" data-share="print"><span class="em">🖨️</span><b>พิมพ์ / บันทึก PDF</b><small>เลือก “บันทึกเป็น PDF” ในหน้าพิมพ์</small></button>
+        <button type="button" class="share-opt" data-share="file"><span class="em">💾</span><b>ดาวน์โหลดไฟล์แผน</b><small>ไฟล์ .json สำรองไว้ หรือนำเข้าในเครื่องอื่น</small></button>
       </div>
       ${link ? `<label class="field share-link"><span>ลิงก์แผน</span><input readonly id="shareLink" value="${esc(link)}"></label>
       <p class="muted share-note">🔒 ข้อมูลแผนอยู่ในลิงก์ทั้งหมด ไม่ได้อัปโหลดไปเก็บที่ไหน เพื่อนเปิดแล้วกดบันทึกเป็นแผนของตัวเองได้</p>` : ''}`);
@@ -249,6 +298,9 @@
       } else if (how === 'print') {
         closeSheet();
         setTimeout(() => window.print(), 250);
+      } else if (how === 'file') {
+        downloadPlans([plan], `แผนเที่ยว-${plan.title.replace(/[\\/:*?"<>|\s]+/g, '-')}`);
+        toast('ดาวน์โหลดไฟล์แผนแล้ว — นำเข้าได้ที่หน้า “ทริปที่บันทึกไว้”');
       }
     };
     $('#shareLink')?.addEventListener('focus', (e) => e.target.select());
@@ -353,9 +405,17 @@
           <section class="step">
             ${stepHead(4, 'สไตล์การเที่ยวที่ชอบ', 'เลือกได้มากกว่า 1 ข้อ')}
             <div class="styles">${D.STYLES.map((s) => `<button type="button" class="style" data-style="${s.id}" aria-pressed="${f.styles.includes(s.id)}"><span class="em" aria-hidden="true">${s.icon}</span>${esc(s.label)}</button>`).join('')}</div>
+            <div class="sub-block">
+              <h3 class="sub-title">ข้อจำกัดของผู้ร่วมทริป <small>(ถ้ามี)</small></h3>
+              <div class="chips" role="group" aria-label="ข้อจำกัดของผู้ร่วมทริป">${D.NEEDS.map((n) => `<button type="button" class="chip" data-need="${n.id}" aria-pressed="${(f.needs || []).includes(n.id)}"><span class="em" aria-hidden="true">${n.icon}</span>${esc(n.label)}</button>`).join('')}</div>
+              <label class="meal-cap"><span>🍽️ งบอาหารต่อคนต่อมื้อ</span><select id="mealCap">${D.MEAL_CAPS.map((v) => `<option value="${v}" ${Number(f.mealCap) === v ? 'selected' : ''}>${v ? `ไม่เกิน ${baht(v)}` : 'ไม่จำกัด (ตามระดับงบ)'}</option>`).join('')}</select></label>
+              <p class="sub-note" id="needsNote"></p>
+            </div>
           </section>
           <section class="step">
-            ${stepHead(5, 'การเดินทางข้ามจังหวัด', 'ตัวเลือกงบประมาณพาหนะเดินทาง')}
+            ${stepHead(5, 'การเดินทาง', 'วิธีเดินทางในพื้นที่ และค่าเดินทางจากกรุงเทพฯ')}
+            <div class="seg" role="group" aria-label="วิธีเดินทางในพื้นที่">${D.MODES.map((m) => `<button type="button" data-mode="${m.id}" aria-pressed="${(f.mode || 'auto') === m.id}"><span class="em" aria-hidden="true">${m.icon}</span>${esc(m.label)}</button>`).join('')}</div>
+            <p class="sub-note" id="modeNote"></p>
             <label class="toggle" id="travelToggle"><span class="toggle-text"><b>รวมค่าเดินทางไป-กลับจากกรุงเทพฯ</b><small id="travelHint"></small></span><input type="checkbox" id="includeTravel" ${f.includeTravel ? 'checked' : ''}><span class="switch" aria-hidden="true"></span></label>
             <div class="overview" id="estimate" aria-live="polite"></div>
           </section>
@@ -391,6 +451,22 @@
     $$('[data-prov]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.prov === f.province));
     $$('[data-budget]').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.budget) === f.budget));
     $$('[data-style]').forEach((b) => b.setAttribute('aria-pressed', f.styles.includes(b.dataset.style)));
+    f.needs = Array.isArray(f.needs) ? f.needs : [];
+    f.mode = D.MODES.some((m) => m.id === f.mode) ? f.mode : 'auto';
+    $$('[data-need]').forEach((b) => b.setAttribute('aria-pressed', f.needs.includes(b.dataset.need)));
+    $$('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === f.mode));
+    const MODE_NOTE = {
+      auto: 'เลือกให้ตามระดับงบ: ประหยัด = รถสาธารณะ · มาตรฐาน = แอปเรียกรถ · สบาย = เช่ารถพร้อมคนขับ',
+      public: 'รถเมล์ สองแถว รถไฟ — ค่าเดินทางคิดต่อคน และเผื่อเวลารอรถ (ช้ากว่าขับรถประมาณ 1.5 เท่า)',
+      drive: `ค่าน้ำมันตามระยะทางจริงของแต่ละวัน (~${D.TRAVEL.fuelPerKm} บาท/กม.) + ค่าจอด · ถ้ารวมค่าเดินทางจากกรุงเทพฯ จะคิดเป็นค่าน้ำมันไป-กลับ (ไม่รวมทางด่วน)`,
+      rent: `ค่าเช่า ~${D.TRAVEL.rentPerDay.toLocaleString('th-TH')} บาท/คัน/วัน + ค่าน้ำมันตามระยะทาง · คันละไม่เกิน ${D.TRAVEL.seatsPerCar} คน`
+    };
+    $('#modeNote').textContent = MODE_NOTE[f.mode];
+    const prof = P.profile({ needs: f.needs });
+    const skipped = p.places.filter((pl) => prof.avoid.has(P.accessOf(pl.n)));
+    $('#needsNote').textContent = f.needs.length
+      ? `${skipped.length ? `ไม่จัด ${skipped.length} แห่งใน${p.name}ที่อาจไม่สะดวก (เช่น ${skipped.slice(0, 2).map((x) => x.n).join(', ')})` : `สถานที่ใน${p.name}เหมาะกับข้อจำกัดนี้ทั้งหมด`} · เที่ยววันละไม่เกิน ${prof.cap} ชม. — ประเมินจากข้อมูลทั่วไป ควรสอบถามสถานที่ก่อนเดินทาง`
+      : 'เช่น เด็กเล็ก ผู้สูงอายุ รถเข็น — ระบบจะเลี่ยงสถานที่ที่ต้องเดินขึ้นเขา บันไดชัน หรือลุยน้ำขึ้นเรือ';
     $('#daysOut').innerHTML = `${f.days}<small>วัน</small>`;
     $('#peopleOut').innerHTML = `${f.people}<small>คน</small>`;
     $('[data-step="days:-1"]').disabled = f.days <= 1;
@@ -402,7 +478,9 @@
     travelInput.disabled = !canTravel;
     $('#travelToggle').classList.toggle('disabled', !canTravel);
     $('#travelHint').textContent = canTravel
-      ? `ประมาณ ${baht(p.fromBangkok.price[0])}–${baht(p.fromBangkok.price[1])} ต่อคน (${p.fromBangkok.mode.join(' / ')})`
+      ? (f.mode === 'drive'
+        ? `ขับรถเอง: ค่าน้ำมันไป-กลับประมาณ ${baht(P.tripCost(p, 0, { mode: 'drive', people: f.people }).cost)} (${P.tripCost(p, 0, { mode: 'drive', people: f.people }).km.toLocaleString('th-TH')} กม. ไม่รวมทางด่วน)`
+        : `ประมาณ ${baht(p.fromBangkok.price[0])}–${baht(p.fromBangkok.price[1])} ต่อคน (${p.fromBangkok.mode.join(' / ')})`)
       : 'ไม่ต้องรวม — ทริปนี้อยู่ในกรุงเทพฯ';
     const perDay = f.budget / Math.max(1, f.people) / Math.max(1, f.days);
     $('#budgetNote').textContent = f.budget ? baht(perDay) : '–';
@@ -429,7 +507,7 @@
       <div class="ov-head">
         <span class="em">${plan.feasible ? icon('sparkles') : '⚠️'}</span>
         <div>${plan.feasible
-          ? `<b>ระดับการท่องเที่ยวที่แนะนำ <span class="tier-badge">${T.icon} ${esc(T.label)}</span></b><small>${esc(T.lodging)} · ${esc(T.transport)}</small>`
+          ? `<b>ระดับการท่องเที่ยวที่แนะนำ <span class="tier-badge">${T.icon} ${esc(T.label)}</span></b><small>${esc(T.lodging)} · ${esc(f.mode === 'auto' ? T.transport : D.MODES.find((m) => m.id === f.mode).label)}${plan.skipped.length ? ` · เลี่ยง ${plan.skipped.length} สถานที่ตามข้อจำกัด` : ''}${f.mealCap ? ` · อาหารไม่เกิน ${baht(f.mealCap)}/มื้อ` : ''}</small>`
           : `<b>งบอาจไม่พอสำหรับ ${esc(p.name)} ${f.days} วัน ${f.people} คน</b><small>แนะนำอย่างน้อยประมาณ ${baht(plan.minBudget)}</small>`}</div>
         <div class="ov-total"><small>ใช้ประมาณ</small><b>${baht(s.total)}</b></div>
       </div>
@@ -464,8 +542,19 @@
         const id = st.dataset.style;
         f.styles = f.styles.includes(id) ? f.styles.filter((x) => x !== id) : [...f.styles, id];
         syncHome();
+        return;
       }
+      const need = e.target.closest('[data-need]');
+      if (need) {
+        const id = need.dataset.need;
+        f.needs = f.needs.includes(id) ? f.needs.filter((x) => x !== id) : [...f.needs, id];
+        syncHome();
+        return;
+      }
+      const mode = e.target.closest('[data-mode]');
+      if (mode) { f.mode = mode.dataset.mode; syncHome(); }
     });
+    $('#mealCap').addEventListener('change', (e) => { state.form.mealCap = Number(e.target.value) || 0; syncHome(); });
     $('#budget').addEventListener('input', (e) => {
       const digits = e.target.value.replace(/[^\d]/g, '').slice(0, 8);
       state.form.budget = Number(digits) || 0;
@@ -503,6 +592,14 @@
           <div class="section-head"><h2>แผนของฉัน</h2><a class="btn btn-primary btn-sm" href="#/">＋ วางแผนใหม่</a></div>
           ${list.length ? `<div class="saved-grid">${list.map(savedCard).join('')}</div>` : `
           <div class="empty"><div class="em">🧳</div><h3>ยังไม่มีแผนที่บันทึกไว้</h3><p>จัดแผนเที่ยวแล้วกด “บันทึกแผน” เพื่อเก็บไว้ในเบราว์เซอร์นี้</p><a class="btn btn-primary" href="#/">เริ่มวางแผน</a></div>`}
+        </section>
+        <section class="card backup">
+          <div class="backup-text"><h2>💾 สำรองและย้ายแผน</h2>
+            <p>แผนเก็บอยู่ในเบราว์เซอร์นี้เท่านั้น ถ้าล้างข้อมูลเบราว์เซอร์หรือเปลี่ยนเครื่องแผนจะหาย — ส่งออกเป็นไฟล์เก็บไว้ แล้วนำเข้าในเครื่องอื่นได้</p></div>
+          <div class="backup-actions">
+            <button type="button" class="btn btn-light" data-export ${list.length ? '' : 'disabled'}>⬇️ ส่งออกทั้งหมด (${list.length})</button>
+            <label class="btn btn-light file-btn">⬆️ นำเข้าจากไฟล์<input type="file" id="importFile" accept=".json,application/json"></label>
+          </div>
         </section>
       </div>`;
   }
@@ -547,6 +644,9 @@
             <span>${T.icon} ระดับ${esc(T.label)}</span>
             ${styles.map((s) => `<span>${s.icon} ${esc(s.label)}</span>`).join('')}
             ${plan.input.includeTravel ? '<span>🧭 รวมค่าเดินทางจากกรุงเทพฯ</span>' : ''}
+            ${plan.input.mode && plan.input.mode !== 'auto' ? `<span>${D.MODES.find((m) => m.id === plan.input.mode)?.icon || ''} ${esc(D.MODES.find((m) => m.id === plan.input.mode)?.label || '')}</span>` : ''}
+            ${(plan.input.needs || []).map((n) => D.NEEDS.find((x) => x.id === n)).filter(Boolean).map((n) => `<span>${n.icon} ${esc(n.label)}</span>`).join('')}
+            ${plan.input.mealCap ? `<span>🍽️ ไม่เกิน ${baht(plan.input.mealCap)}/มื้อ</span>` : ''}
           </div>
         </section>
         <div class="grid-2">
@@ -658,6 +758,10 @@
     }
   }
 
+  const ACCESS_TAG = {
+    hard: '<span class="access-tag hard" title="ประเมินจากข้อมูลทั่วไป">⛰️ ทางชัน/เดินป่า/ขึ้นเรือ</span>',
+    some: '<span class="access-tag" title="ประเมินจากข้อมูลทั่วไป">🚶 เดินค่อนข้างมาก</span>'
+  };
   function itemHtml(it, di, no) {
     const c = P.CATS[it.cat] || P.CATS.fees;
     const color = dayColor(di);
@@ -671,8 +775,9 @@
           <div class="item-main">
             <div class="item-name">${esc(it.name)}</div>
             <div class="item-meta">
-              <span class="tag" style="background:${tint(c.color)};color:${c.color}">${c.icon} ${c.label}</span>
+              <span class="tag" style="background:${tint(c.color)};color:color-mix(in srgb, ${c.color} 52%, #000)">${c.icon} ${c.label}</span>
               ${it.typeLabel ? `<span>${esc(it.typeLabel)}</span>` : ''}
+              ${ACCESS_TAG[it.access] || ''}
               ${it.zoneLabel && it.kind !== 'lodging' ? `<span>📍 ${esc(it.zoneLabel)}</span>` : ''}
               ${it.mins ? `<span>⏱️ ${dur(it.mins)}</span>` : ''}
             </div>
@@ -723,12 +828,12 @@
   // และสลับไปแผนที่สำรองอัตโนมัติถ้าไทล์ OSM โหลดไม่ขึ้นหลายครั้ง
   function addBaseTiles(map) {
     const fallbackTiles = () => L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19,
+      maxZoom: 19, crossOrigin: true, // อ่านไทล์แบบ CORS เพื่อให้ service worker เก็บไว้ดูออฟไลน์ได้
       attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors'
     });
     if (location.protocol === 'file:') { fallbackTiles().addTo(map); return; }
     const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
+      maxZoom: 19, crossOrigin: true, // อ่านไทล์แบบ CORS เพื่อให้ service worker เก็บไว้ดูออฟไลน์ได้
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
     }).addTo(map);
     let failed = 0;
@@ -1233,6 +1338,11 @@
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) { closeSheet(); return; }
     if (e.target.closest('[data-credits]')) { openCredits(); return; }
+    if (e.target.closest('[data-export]')) {
+      downloadPlans(savedList(), 'tiew-podee-ngob-plans');
+      toast('ส่งออกแผนทั้งหมดแล้ว — เก็บไฟล์ไว้ในที่ปลอดภัย');
+      return;
+    }
     const editInput = e.target.closest('[data-edit-input]');
     if (editInput && state.plan) { state.form = { ...state.plan.input }; store.set(KEYS.form, state.form); return; }
     const remove = e.target.closest('[data-remove]');
@@ -1274,11 +1384,34 @@
     const jump = e.target.closest('[data-jump]');
     if (jump) { e.preventDefault(); $(`#day-${Number(jump.dataset.jump) + 1}`).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
+  document.addEventListener('change', (e) => {
+    if (e.target.id === 'importFile') { importPlans(e.target.files?.[0]); e.target.value = ''; }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeSheet(); return; }
+    // ขณะเปิดหน้าต่าง (sheet) ให้ Tab วนอยู่ในหน้าต่าง ไม่หลุดไปที่หน้าเว็บด้านหลัง
+    if (e.key === 'Tab' && !$('#sheet').hidden) {
+      const items = $$('#sheet .sheet-panel :is(a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"]))').filter((el) => !el.disabled && el.offsetParent !== null);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === $('#sheet .sheet-panel'))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
   window.addEventListener('hashchange', () => { if (!/^#day-/.test(location.hash)) route(); });
 
   // ---------- Boot ----------
   $('#dataUpdated').textContent = D.UPDATED;
   updateSavedCount();
   route();
+
+  // ใช้งานออฟไลน์ (sw.js) — service worker ใช้ได้เฉพาะเมื่อเปิดผ่าน http(s) ไม่ใช่ไฟล์ในเครื่อง
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* ใช้งานต่อได้ตามปกติ */ }); });
+  }
+  const offlineNote = () => toast('ออฟไลน์อยู่ — เปิดแผนที่บันทึกไว้ได้ แผนที่แสดงเฉพาะบริเวณที่เคยเปิดดู');
+  window.addEventListener('offline', offlineNote);
+  window.addEventListener('online', () => toast('กลับมาออนไลน์แล้ว'));
+  if (navigator.onLine === false) offlineNote();
+  $('.skip-link')?.addEventListener('click', (e) => { e.preventDefault(); app.focus(); app.scrollIntoView(); });
 })();

@@ -302,6 +302,85 @@ await test('weekday warning for places that open only on certain days', async ()
   assert(w && w.includes('ถนนคนเดินวันอาทิตย์') && w.includes('จันทร์'), w || 'no warnings');
   return w.slice(0, 110);
 });
+// ---------- วิธีเดินทาง ข้อจำกัด สำรองแผน ออฟไลน์ ----------
+const setBudget = (v) => ev(`(() => { const i = document.querySelector('#budget'); i.value = '${v}'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+await test('travel mode + needs + meal cap flow into the plan', async () => {
+  await go(SITE + '#/');
+  await waitFor(`!!document.querySelector('[data-mode]')`);
+  await click('[data-prov="krabi"]');
+  await setBudget(40000);
+  await click('[data-mode="rent"]');
+  await click('[data-need="wheelchair"]');
+  await ev(`(() => { const s = document.querySelector('#mealCap'); s.value = '120'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const note = await ev(`document.querySelector('#needsNote').textContent + ' | ' + document.querySelector('#estimate').textContent.replace(/\\s+/g, ' ')`);
+  assert(/ไม่จัด \d+ แห่ง/.test(note) && /เช่ารถ/.test(note) && /120/.test(note), note);
+  await click('#planner button[type=submit]');
+  assert(await waitFor(`location.hash.startsWith('#/plan/') && !!document.querySelector('#days .item')`), 'no plan');
+  const r = JSON.parse(await ev(`JSON.stringify({ chips: document.querySelector('.meta-chips').textContent, names: [...document.querySelectorAll('.item-name')].map(n => n.textContent) })`));
+  assert(r.chips.includes('เช่ารถขับเอง') && r.chips.includes('ใช้รถเข็น') && r.chips.includes('120'), r.chips);
+  assert(r.names.some((n) => n.includes('เช่ารถ')), 'no rental item');
+  assert(!r.names.some((n) => /4 เกาะ|ไร่เลย์|ถ้ำเสือ/.test(n)), 'unsuitable place for wheelchair: ' + r.names.join(', '));
+  await click('#saveBtn');
+  assert(await waitFor(`document.querySelector('#saveBtn').textContent.includes('บันทึกแล้ว')`), 'not saved');
+  return r.names.filter((n) => !/อาหาร|ที่พัก|เดินทาง/.test(n)).join(', ');
+});
+await test('export all plans to a file, clear storage, import it back', async () => {
+  await go(SITE + '#/saved');
+  await waitFor(`!!document.querySelector('[data-export]')`);
+  const before = await ev(`Object.keys(JSON.parse(localStorage.getItem('tripplanner.plans.v1') || '{}')).length`);
+  // ดักไฟล์ที่ดาวน์โหลด: อ่าน Blob จากลิงก์ที่หน้าเว็บสร้าง
+  await ev(`(() => { window.__dl = null; const orig = URL.createObjectURL; URL.createObjectURL = (b) => { window.__blob = b; return orig.call(URL, b); };
+    const oc = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { if (this.download) window.__dl = this.download; else oc.call(this); }; })()`);
+  await click('[data-export]');
+  const file = await ev(`(async () => ({ name: window.__dl, text: await window.__blob.text() }))()`);
+  const json = JSON.parse(file.text);
+  assert(file.name.endsWith('.json') && json.app === 'tiew-podee-ngob' && json.plans.length === before && before > 0, JSON.stringify({ name: file.name, n: json.plans?.length, before }));
+  await ev(`localStorage.removeItem('tripplanner.plans.v1')`);
+  await go(SITE + '#/saved');
+  await waitFor(`!!document.querySelector('#importFile')`);
+  const imp = async (text) => ev(`(() => { const dt = new DataTransfer(); dt.items.add(new File([${JSON.stringify(text)}], 'plans.json', { type: 'application/json' }));
+    const i = document.querySelector('#importFile'); i.files = dt.files; i.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await imp(file.text);
+  assert(await waitFor(`document.querySelectorAll('.saved-card').length === ${before}`), 'import did not restore plans');
+  const msg1 = await ev(`document.querySelector('#toast').textContent`);
+  await imp(file.text); // นำเข้าซ้ำ → ข้าม ไม่ซ้ำ
+  await waitFor(`document.querySelector('#toast').textContent.includes('ข้าม')`, 4000);
+  const count = await ev(`document.querySelectorAll('.saved-card').length`);
+  await imp('{"app":"other"}');
+  assert(await waitFor(`document.querySelector('#toast').textContent.includes('ไม่ใช่ไฟล์สำรอง')`, 4000), 'bad file not rejected');
+  const opened = await ev(`(() => { document.querySelector('.saved-card a.btn').click(); return true; })()`);
+  assert(opened && await waitFor(`!!document.querySelector('#days .item') && document.querySelector('.meta-chips').textContent.includes('ใช้รถเข็น')`), 'imported plan lost its settings');
+  assert(count === before, `duplicate import: ${count}`);
+  return `${file.name} · ${msg1}`;
+});
+await test('keyboard: skip link, focus stays inside the dialog', async () => {
+  await go(SITE + '#/');
+  await waitFor(`!!document.querySelector('#planner')`);
+  const skip = await ev(`(async () => { const s = document.querySelector('.skip-link'); s.focus(); await new Promise((r) => setTimeout(r, 400)); const visible = s.getBoundingClientRect().top >= 0; s.click(); return JSON.stringify({ visible, focused: document.activeElement === document.querySelector('#app') }); })()`);
+  assert(skip === JSON.stringify({ visible: true, focused: true }), 'skip link ' + skip);
+  await click('[data-credits]');
+  await waitFor(`!document.querySelector('#sheet').hidden`);
+  const trapped = await ev(`(async () => { const tab = (shift) => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: shift, bubbles: true, cancelable: true }));
+    const items = [...document.querySelectorAll('#sheet .sheet-panel a[href], #sheet .sheet-panel button')];
+    items[items.length - 1].focus(); tab(false); const wrapped = document.activeElement === items[0];
+    tab(true); const back = document.activeElement === items[items.length - 1]; return wrapped && back; })()`);
+  assert(trapped, 'focus escaped dialog');
+  await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+  assert(await waitFor(`document.querySelector('#sheet').hidden`), 'Escape did not close');
+});
+await test('offline: service worker caches the app and serves it without network', async () => {
+  assert(await waitFor(`navigator.serviceWorker.getRegistration().then(r => !!r && !!r.active)`, 15000), 'service worker not active');
+  assert(await waitFor(`caches.open('shell-v1').then(c => c.match('assets/js/app.js')).then(r => !!r)`), 'app shell not cached');
+  await send('Network.enable');
+  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await send('Page.reload');
+  await sleep(1500);
+  const ok = await waitFor(`document.querySelectorAll('.saved-card').length > 0`, 8000);
+  await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  assert(ok, 'saved plans did not open offline');
+  return 'saved plans open with network off';
+});
+
 await test('photo credits list every province photo with license', async () => {
   await go(SITE + '#/');
   assert(await waitFor(`document.querySelectorAll('.prov-photo img').length === 12`), 'photos missing');

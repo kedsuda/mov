@@ -113,6 +113,59 @@ check('invalid startDate is dropped', P.plan({ province: 'nan', days: 2, people:
 check('invalid province throws', (() => { try { P.plan({ province: 'nope', days: 1, people: 1, budget: 1 }); return false; } catch { return true; } })());
 check('input is clamped', (() => { const x = P.plan({ province: 'nan', days: 99, people: 0, budget: -5 }); return x.input.days === 10 && x.input.people === 1 && x.input.budget === 0; })());
 
+// ---------- วิธีเดินทาง ----------
+const allNames = (pl) => pl.days.flatMap((d) => d.items);
+for (const prov of DATA.PROVINCES) {
+  for (const mode of ['auto', 'public', 'drive', 'rent']) {
+    const tag = `[${prov.id} ${mode}]`;
+    const pl = P.plan({ province: prov.id, days: 3, people: 3, budget: 20000, styles: [], includeTravel: true, mode });
+    const s = P.summarize(pl);
+    check('mode kept in input', pl.input.mode === mode, tag);
+    check('mode: one local transport item per day', pl.days.every((d) => d.items.filter((i) => i.kind === 'local').length === 1), tag);
+    check('mode: sum matches summary', s.total === allNames(pl).reduce((a, i) => a + i.cost, 0), tag);
+    check('mode: costs non-negative', allNames(pl).every((i) => Number.isFinite(i.cost) && i.cost >= 0), tag);
+    if (mode === 'drive' && prov.fromBangkok) check('drive: trip is fuel, no tolls', /ขับรถ/.test(pl.days[0].items.find((i) => i.kind === 'trip').name), tag);
+    if (mode === 'rent') check('rent: includes daily car hire', pl.days.every((d) => d.items.find((i) => i.kind === 'local').cost >= DATA.TRAVEL.rentPerDay), tag);
+  }
+}
+const legSum = (pl) => allNames(pl).reduce((a, i) => a + (i.travel || 0), 0);
+const byMode = (mode) => P.plan({ province: 'chiangmai', days: 3, people: 2, budget: 20000, mode });
+check('public transport takes longer than driving', legSum(byMode('public')) > legSum(byMode('drive')), `${legSum(byMode('public'))} vs ${legSum(byMode('drive'))}`);
+check('public transport scales with people', P.localCost(P.province('phuket'), 0, { mode: 'public', people: 4 }) === 2 * P.localCost(P.province('phuket'), 0, { mode: 'public', people: 2 }));
+check('rent: 6 people need 2 cars', P.localCost(P.province('phuket'), 0, { mode: 'rent', people: 6 }, 40) >= 2 * DATA.TRAVEL.rentPerDay);
+check('drive: farther day costs more fuel', P.localCost(P.province('nan'), 0, { mode: 'drive', people: 2 }, 200) > P.localCost(P.province('nan'), 0, { mode: 'drive', people: 2 }, 40));
+check('unknown mode falls back to auto', P.plan({ province: 'nan', days: 1, people: 1, budget: 5000, mode: 'jetpack' }).input.mode === 'auto');
+
+// ---------- ข้อจำกัดของผู้เดินทาง ----------
+const ACC = DATA.ACCESS;
+const known = new Set(DATA.PROVINCES.flatMap((p) => p.places.map((pl) => pl.n)));
+check('ACCESS names exist in data', [...ACC.hard, ...ACC.some, ...ACC.adult].every((n) => known.has(n)), [...ACC.hard, ...ACC.some, ...ACC.adult].filter((n) => !known.has(n)).join(', '));
+for (const prov of DATA.PROVINCES) {
+  for (const needs of [['wheelchair'], ['elderly'], ['lowwalk'], ['kids'], ['elderly', 'kids']]) {
+    const tag = `[${prov.id} ${needs}]`;
+    const pl = P.plan({ province: prov.id, days: 4, people: 2, budget: 60000, styles: ['nature', 'beach'], needs });
+    const places = allNames(pl).filter((i) => i.kind === 'place');
+    const avoid = P.profile(pl.input).avoid;
+    check('needs: no unsuitable places', places.every((i) => !avoid.has(P.accessOf(i.name))), `${tag} ${places.map((i) => i.name).join(', ')}`);
+    check('needs: still has lunch + dinner', pl.days.every((d) => d.items.filter((i) => i.kind === 'meal').length >= 2), tag);
+    if (!needs.includes('kids') || needs.length > 1) check('needs: at most 3 daytime places', pl.days.every((d) => d.items.filter((i) => i.kind === 'place' && P.parseTime(i.time) < 17 * 60).length <= 3), tag);
+  }
+}
+const krabiAll = P.plan({ province: 'krabi', days: 3, people: 2, budget: 40000, styles: ['beach'] });
+const krabiWheel = P.plan({ province: 'krabi', days: 3, people: 2, budget: 40000, styles: ['beach'], needs: ['wheelchair'] });
+check('wheelchair skips boat tours', allNames(krabiAll).some((i) => i.name.includes('4 เกาะ')) && !allNames(krabiWheel).some((i) => i.name.includes('4 เกาะ')));
+check('skipped lists filtered places', krabiWheel.skipped.includes('ทัวร์ 4 เกาะ (ทะเลแหวก เกาะไก่ เกาะปอดะ)') && krabiAll.skipped.length === 0);
+check('kids skip nightlife', !allNames(P.plan({ province: 'phuket', days: 4, people: 2, budget: 60000, styles: ['beach'], needs: ['kids'] })).some((i) => i.name.includes('บางลา')));
+check('place items carry access tag', allNames(krabiAll).some((i) => i.access === 'hard'));
+check('unknown needs are dropped', P.plan({ province: 'nan', days: 1, people: 1, budget: 5000, needs: ['x', 'kids', 'kids'] }).input.needs.join() === 'kids');
+
+// ---------- งบต่อมื้อ ----------
+const food = (mealCap) => P.summarize(P.plan({ province: 'phuket', days: 3, people: 2, budget: 80000, mealCap })).byCat.food;
+check('meal cap lowers food cost', food(120) < food(0), `${food(120)} vs ${food(0)}`);
+const meals = allNames(P.plan({ province: 'phuket', days: 3, people: 2, budget: 80000, mealCap: 120 })).filter((i) => i.kind === 'meal').reduce((a, i) => a + i.cost, 0);
+check('meal cap: meals ≤ 3 × cap per person per day', meals <= 3 * 2 * 120 * 3, String(meals));
+check('invalid meal cap ignored', P.plan({ province: 'nan', days: 1, people: 1, budget: 5000, mealCap: 77 }).input.mealCap === 0);
+
 console.log(`${combos} plan combinations generated`);
 if (fails.length) {
   console.log(`FAIL ${fails.length} checks:\n  ` + [...new Set(fails)].slice(0, 25).join('\n  '));

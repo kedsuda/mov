@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.resolve(root, (process.env.OUT_DIR || '').trim() || 'dist');
-const FILES = ['index.html', '.nojekyll', 'assets'];
+const FILES = ['index.html', '.nojekyll', 'sw.js', 'assets'];
 const errors = [];
 
 fs.rmSync(out, { recursive: true, force: true });
