@@ -124,6 +124,7 @@
   const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
   const nextSaturday = () => { const t = new Date(); return isoDate(addDays(t, ((6 - t.getDay() + 7) % 7) || 7)); };
   const fmtDay = (d, opts = { weekday: 'short', day: 'numeric', month: 'short' }) => d.toLocaleDateString('th-TH', opts);
+  const LONG_DAY = { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' };
   const dayDate = (plan, i) => { const s = parseISO(plan.input.startDate); return s ? addDays(s, i) : null; };
   // ---------- เตือนวันเปิด-ปิด (อ่านจากหมายเหตุของสถานที่ในข้อมูลตัวอย่าง) ----------
   const DOW_FULL = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
@@ -364,9 +365,9 @@
 
   function renderHome() {
     const f = state.form;
-    // วันเดินทาง: ครั้งแรกตั้งเป็นเสาร์ถัดไป ถ้าวันที่เก่าเลยไปแล้วก็เลื่อนให้ ('' = ผู้ใช้ไม่ระบุ)
+    // วันไป: ครั้งแรก (หรือแผนเก่าที่ไม่มีวันที่) ตั้งเป็นเสาร์ถัดไป ถ้าวันที่เลยไปแล้วก็เลื่อนให้
     const today = parseISO(isoDate(new Date()));
-    if (f.startDate == null || (parseISO(f.startDate) && parseISO(f.startDate) < today)) f.startDate = nextSaturday();
+    if (!parseISO(f.startDate) || parseISO(f.startDate) < today) f.startDate = nextSaturday();
     const saved = savedList();
     app.innerHTML = `
       <section class="hero">
@@ -394,10 +395,16 @@
           <section class="step">
             ${stepHead(3, 'วันเดินทางและผู้ร่วมทริป', 'ระบุเพื่อจัดสรรที่พักและการเดินทาง')}
             <div class="trip-row">
-              <label class="counter date-box"><span class="c-icon c-amber">${icon('calendar')}</span><span class="c-text"><small>วันที่ออกเดินทาง</small><b>เริ่มทริป</b></span>
-                <span class="date-in"><input type="date" id="startDate" value="${esc(f.startDate || '')}" min="${isoDate(new Date())}" aria-describedby="dateHint"><small id="dateHint"></small></span></label>
-              <div class="counter"><span class="c-icon c-orange">${icon('clock')}</span><span class="c-text"><small>ระยะเวลาทริป</small><b>จำนวนวัน</b></span>
-                <div class="stepper"><button type="button" data-step="days:-1" aria-label="ลดจำนวนวัน">−</button><output id="daysOut">${f.days}<small>วัน</small></output><button type="button" data-step="days:1" aria-label="เพิ่มจำนวนวัน">+</button></div></div>
+              <button type="button" class="counter date-box range" id="datePick" aria-haspopup="dialog" aria-describedby="daysOut">
+                <span class="c-icon c-amber">${icon('calendar')}</span>
+                <span class="range-fields">
+                  <span class="d-field"><small>วันไป</small><b id="startLabel"></b></span>
+                  <span class="range-arrow" aria-hidden="true">→</span>
+                  <span class="d-field"><small>วันกลับ</small><b id="endLabel"></b></span>
+                </span>
+                <output id="daysOut" class="range-sum" aria-live="polite"></output>
+              </button>
+              <input type="hidden" id="startDate" value="${esc(f.startDate)}"><input type="hidden" id="endDate">
               <div class="counter"><span class="c-icon c-sky">${icon('users')}</span><span class="c-text"><small>ผู้ร่วมเดินทาง</small><b>จำนวนคน</b></span>
                 <div class="stepper"><button type="button" data-step="people:-1" aria-label="ลดจำนวนคน">−</button><output id="peopleOut">${f.people}<small>คน</small></output><button type="button" data-step="people:1" aria-label="เพิ่มจำนวนคน">+</button></div></div>
             </div>
@@ -469,10 +476,15 @@
     $('#needsNote').textContent = f.needs.length
       ? `${skipped.length ? `ไม่จัด ${skipped.length} แห่งใน${p.name}ที่อาจไม่สะดวก (เช่น ${skipped.slice(0, 2).map((x) => x.n).join(', ')})` : `สถานที่ใน${p.name}เหมาะกับข้อจำกัดนี้ทั้งหมด`} · เที่ยววันละไม่เกิน ${prof.cap} ชม. — ประเมินจากข้อมูลทั่วไป ควรสอบถามสถานที่ก่อนเดินทาง`
       : 'เช่น เด็กเล็ก ผู้สูงอายุ รถเข็น — ระบบจะเลี่ยงสถานที่ที่ต้องเดินขึ้นเขา บันไดชัน หรือลุยน้ำขึ้นเรือ';
-    $('#daysOut').innerHTML = `${f.days}<small>วัน</small>`;
+    // วันเดินทาง: วันไป + วันกลับ จากปฏิทิน → จำนวนวัน (1–10)
+    const start = parseISO(f.startDate);
+    const end = addDays(start, f.days - 1);
+    $('#startDate').value = f.startDate;
+    $('#endDate').value = isoDate(end);
+    $('#startLabel').textContent = fmtDay(start, LONG_DAY);
+    $('#endLabel').textContent = fmtDay(end, LONG_DAY);
+    $('#daysOut').innerHTML = `<b>${f.days} วัน</b> ${f.days > 1 ? `${f.days - 1} คืน` : 'ไปเช้าเย็นกลับ'}<small>${f.days > 1 ? `${fmtDay(start)} – ${fmtDay(end)}` : fmtDay(start)}</small>`;
     $('#peopleOut').innerHTML = `${f.people}<small>คน</small>`;
-    $('[data-step="days:-1"]').disabled = f.days <= 1;
-    $('[data-step="days:1"]').disabled = f.days >= 10;
     $('[data-step="people:-1"]').disabled = f.people <= 1;
     $('[data-step="people:1"]').disabled = f.people >= 20;
     const travelInput = $('#includeTravel');
@@ -487,8 +499,6 @@
     const perDay = f.budget / Math.max(1, f.people) / Math.max(1, f.days);
     $('#budgetNote').textContent = f.budget ? baht(perDay) : '–';
     $('#provDesc').innerHTML = `<b>${esc(p.full)}</b> · ${esc(p.blurb)}`;
-    const start = parseISO(f.startDate);
-    $('#dateHint').textContent = start ? (f.days > 1 ? `กลับ ${fmtDay(addDays(start, f.days - 1))}` : fmtDay(start)) : 'ไม่ระบุก็ได้';
     store.set(KEYS.form, f);
 
     const est = $('#estimate');
@@ -520,6 +530,96 @@
         ${parts.map((x) => `<span><i style="background:${x.color}"></i>${x.icon} ${x.label} <b>${baht(x.v)}</b></span>`).join('')}
         <span class="${s.over ? 'over' : 'left'}"><i></i>${s.over ? 'เกินงบ' : 'คงเหลือ'} <b>${baht(Math.abs(s.remaining))}</b></span>
       </div>`;
+  }
+
+  // ---------- ปฏิทินเลือกวันไป-กลับ: แตะวันไป แล้วแตะวันกลับ (แตะวันไปซ้ำ = ไปเช้าเย็นกลับ) ----------
+  const MAX_DAYS = 10;
+  const TH_DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  function openRangeCalendar() {
+    const f = state.form;
+    const today = parseISO(isoDate(new Date()));
+    let start = parseISO(f.startDate);
+    let end = addDays(start, f.days - 1);
+    let picking = 'start';
+    let view = new Date(start.getFullYear(), start.getMonth(), 1);
+    const same = (a, b) => !!a && !!b && a.getTime() === b.getTime();
+    const last = () => (picking === 'end' ? addDays(start, MAX_DAYS - 1) : null);
+    const count = () => Math.round((end - start) / 864e5) + 1;
+
+    function monthHtml(m) {
+      const cells = Array.from({ length: m.getDay() }, () => '<span></span>');
+      const n = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+      for (let d = 1; d <= n; d++) {
+        const dt = new Date(m.getFullYear(), m.getMonth(), d);
+        const off = dt < today || (last() && (dt < start || dt > last()));
+        const picked = same(dt, start) || same(dt, end);
+        const cls = ['cal-day', same(dt, start) && 'is-start', same(dt, end) && 'is-end', end && dt > start && dt < end && 'in-range', same(dt, today) && 'is-today'].filter(Boolean).join(' ');
+        cells.push(`<button type="button" class="${cls}" data-cal="${isoDate(dt)}" aria-pressed="${picked}" aria-label="${fmtDay(dt, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}" ${off ? 'disabled' : ''}>${d}</button>`);
+      }
+      return `<div class="cal-month"><h3>${m.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</h3>
+        <div class="cal-grid">${TH_DOW.map((w) => `<span class="cal-dow" aria-hidden="true">${w}</span>`).join('')}${cells.join('')}</div></div>`;
+    }
+    function render(focusIso) {
+      const months = Array.from({ length: window.innerWidth >= 720 ? 2 : 1 }, (_, i) => new Date(view.getFullYear(), view.getMonth() + i, 1));
+      const canPrev = view > new Date(today.getFullYear(), today.getMonth(), 1);
+      body.innerHTML = `
+        <div class="cal-status">
+          <div class="cal-pick${picking === 'start' ? ' on' : ''}"><small>วันไป</small><b>${fmtDay(start, LONG_DAY)}</b></div>
+          <span aria-hidden="true">→</span>
+          <div class="cal-pick${picking === 'end' ? ' on' : ''}"><small>วันกลับ</small><b>${end ? fmtDay(end, LONG_DAY) : 'แตะเลือกวันกลับ'}</b></div>
+        </div>
+        <p class="cal-hint" aria-live="polite">${picking === 'end'
+          ? `แตะวันกลับ (ไม่เกิน ${MAX_DAYS} วัน) · แตะวันไปซ้ำถ้าไปเช้าเย็นกลับ`
+          : `<b>${count()} วัน ${count() > 1 ? `${count() - 1} คืน` : '(ไปเช้าเย็นกลับ)'}</b> · แตะวันที่เพื่อเลือกวันไปใหม่`}</p>
+        <div class="cal-wrap">
+          <button type="button" class="icon-btn cal-prev" data-calnav="-1" aria-label="เดือนก่อนหน้า" ${canPrev ? '' : 'disabled'}>‹</button>
+          <div class="cal-months">${months.map(monthHtml).join('')}</div>
+          <button type="button" class="icon-btn cal-next" data-calnav="1" aria-label="เดือนถัดไป">›</button>
+        </div>
+        <div class="sheet-actions"><button type="button" class="btn btn-light" data-close>ยกเลิก</button><button type="button" class="btn btn-primary" data-calok>ตกลง</button></div>`;
+      if (focusIso) body.querySelector(`[data-cal="${focusIso}"]`)?.focus();
+    }
+
+    openSheet('เลือกวันไป-กลับ', '');
+    const body = $('#sheetBody');
+    render();
+    setTimeout(() => body.querySelector('.cal-day.is-start')?.focus(), 60);
+    body.onclick = (e) => {
+      const nav = e.target.closest('[data-calnav]');
+      if (nav) { view = new Date(view.getFullYear(), view.getMonth() + Number(nav.dataset.calnav), 1); render(); return; }
+      const day = e.target.closest('[data-cal]');
+      if (day && !day.disabled) {
+        const dt = parseISO(day.dataset.cal);
+        if (picking === 'start' || dt < start) { start = dt; end = null; picking = 'end'; }
+        else { end = dt; picking = 'start'; }
+        render(day.dataset.cal);
+        return;
+      }
+      if (e.target.closest('[data-calok]')) {
+        f.startDate = isoDate(start);
+        f.days = end ? count() : 1; // ยังไม่เลือกวันกลับ = ไปเช้าเย็นกลับ
+        closeSheet();
+        syncHome();
+      }
+    };
+    // เลื่อนเมาส์ขณะเลือกวันกลับ: ไฮไลต์ช่วงวันที่จะได้
+    body.onmouseover = (e) => {
+      if (picking !== 'end') return;
+      const b = e.target.closest('[data-cal]');
+      const to = b && !b.disabled ? parseISO(b.dataset.cal) : null;
+      $$('.cal-day', body).forEach((c) => { const d = parseISO(c.dataset.cal); c.classList.toggle('preview', !!to && d > start && d <= to); });
+    };
+    // คีย์บอร์ด: ลูกศรเลื่อนทีละวัน/สัปดาห์ (ข้ามเดือนได้)
+    body.onkeydown = (e) => {
+      const b = e.target.closest('[data-cal]');
+      const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+      if (!b || !step) return;
+      e.preventDefault();
+      const next = isoDate(addDays(parseISO(b.dataset.cal), step));
+      const target = body.querySelector(`[data-cal="${next}"]`);
+      if (target) target.focus();
+      else { view = new Date(view.getFullYear(), view.getMonth() + Math.sign(step), 1); render(next); }
+    };
   }
 
   function bindHome() {
@@ -566,7 +666,19 @@
       syncHome();
     });
     $('#includeTravel').addEventListener('change', (e) => { state.form.includeTravel = e.target.checked; syncHome(); });
-    $('#startDate').addEventListener('change', (e) => { state.form.startDate = parseISO(e.target.value) ? e.target.value : ''; syncHome(); });
+    // เปลี่ยนวันไป: คงจำนวนวันไว้ วันกลับเลื่อนตาม · เปลี่ยนวันกลับ: คำนวณจำนวนวันใหม่
+    $('#startDate').addEventListener('change', (e) => {
+      if (parseISO(e.target.value)) state.form.startDate = e.target.value;
+      else e.target.value = state.form.startDate; // ลบวันที่ทิ้ง → คืนค่าเดิม
+      syncHome();
+    });
+    $('#endDate').addEventListener('change', (e) => {
+      const s = parseISO(state.form.startDate);
+      const en = parseISO(e.target.value);
+      if (en) state.form.days = Math.min(10, Math.max(1, Math.round((en - s) / 864e5) + 1));
+      syncHome();
+    });
+    $('#datePick').addEventListener('click', openRangeCalendar);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const f = state.form;
@@ -1332,7 +1444,7 @@
     if (state.pickerMap) { state.pickerMap.off(); state.pickerMap.remove(); state.pickerMap = null; }
     $('#sheet').hidden = true;
     $('#sheetBody').innerHTML = '';
-    $('#sheetBody').onclick = null;
+    $('#sheetBody').onclick = $('#sheetBody').onmouseover = $('#sheetBody').onkeydown = null;
     document.body.classList.remove('locked');
     lastFocus?.focus?.({ preventScroll: true });
   }

@@ -291,8 +291,8 @@
 
     if (d < days - 1) {
       const rooms = Math.ceil(people / 2);
-      const lodgingRate = input.lodgingRate || p.costs.lodging[tier];
-      add({ kind: 'lodging', cat: 'lodging', icon: '🛏️', ll: p.center || null, zone, zoneLabel: zoneName(p, center), name: `ที่พัก: ${T.lodging} (${zoneName(p, center)})`, time: fmtTime(Math.min(Math.max(dinnerAt + 75, 20 * 60 + 30), 22 * 60 + 30)), cost: rooms * lodgingRate, travel: legMins(p, here, hotel, mode), km: km(here, hotel), note: `${rooms} ห้อง × ${lodgingRate.toLocaleString('th-TH')} บาท/คืน (ห้องละ 2 คน)` });
+      const lodgingRate = ctx.lodgingRate || p.costs.lodging[tier];
+      add({ kind: 'lodging', cat: 'lodging', icon: '🛏️', ll: p.center || null, zone: center, zoneLabel: zoneName(p, center), name: `ที่พัก: ${T.lodging} (${zoneName(p, center)})`, time: fmtTime(Math.min(Math.max(dinnerAt + 75, 20 * 60 + 30), 22 * 60 + 30)), cost: rooms * lodgingRate, travel: legMins(p, here, hotel, mode), km: km(here, hotel), note: `${rooms} ห้อง × ${lodgingRate.toLocaleString('th-TH')} บาท/คืน (ห้องละ 2 คน)` });
     }
     // ขับรถเอง/เช่ารถ: คิดค่าน้ำมันจากระยะทางจริงของวันนั้น (รวมขากลับจากทริปเต็มวัน)
     if (mode === 'drive' || mode === 'rent') {

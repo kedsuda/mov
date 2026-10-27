@@ -83,7 +83,9 @@ await test('no movie-site leftovers on the page', async () => {
 await test('form inputs: province, budget, days, people, styles, travel toggle', async () => {
   await click('[data-prov="phuket"]');
   await ev(`(() => { const i = document.querySelector('#budget'); i.value = '12000'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-  await click('[data-step="days:-1"]');
+  // เลือกวันกลับ = วันไป + 1 วัน → ทริป 2 วัน
+  await ev(`(() => { const s = document.querySelector('#startDate').value; const d = new Date(s + 'T00:00'); d.setDate(d.getDate() + 1);
+    const e = document.querySelector('#endDate'); e.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await click('[data-step="people:1"]');
   await click('[data-style="cafe"]'); // ปิดคาเฟ่ (ค่าเริ่มต้นเปิด)
   await click('[data-style="beach"]');
@@ -92,6 +94,56 @@ await test('form inputs: province, budget, days, people, styles, travel toggle',
   assert(s.prov === 'true' && s.budget === '12,000' && s.days.startsWith('2') && s.people.startsWith('3') && s.beach === 'true', JSON.stringify(s));
   assert(/ระดับ|ไม่พอ/.test(s.est), 'no live estimate');
   return s.est.replace(/\s+/g, ' ');
+});
+await test('trip length is picked from a calendar (departure → return date)', async () => {
+  // ตั้งวันที่ = วันไปปัจจุบัน + plus วัน แล้วส่ง change เหมือนเลือกจากปฏิทิน
+  const pick = (sel, plus) => ev(`(() => { const s = document.querySelector('#startDate').value; const d = new Date(s + 'T00:00'); d.setDate(d.getDate() + ${plus});
+    const e = document.querySelector('${sel}'); e.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  const out = () => ev(`document.querySelector('#daysOut').textContent`);
+  await pick('#endDate', 4);
+  const five = await out();
+  await pick('#endDate', 30); // เกิน 10 วัน → จำกัดที่ 10
+  const capped = await out();
+  const endBefore = await ev(`document.querySelector('#endDate').value`);
+  await pick('#startDate', 7); // เลื่อนวันไป → วันกลับเลื่อนตาม จำนวนวันเท่าเดิม
+  const shifted = await ev(`JSON.stringify({ end: document.querySelector('#endDate').value, out: document.querySelector('#daysOut').textContent })`).then(JSON.parse);
+  assert(five.startsWith('5 วัน 4 คืน') && capped.startsWith('10 วัน') && shifted.out.startsWith('10 วัน') && shifted.end > endBefore, JSON.stringify({ five, capped, shifted }));
+  await pick('#startDate', -7);
+  await pick('#endDate', 1);
+  return five;
+});
+await test('range calendar: tap departure, tap return, range is highlighted', async () => {
+  // วันที่ = วันไปปัจจุบัน + n วัน (รูปแบบ YYYY-MM-DD)
+  const iso = (n) => ev(`(() => { const d = new Date(document.querySelector('#startDate').value + 'T00:00'); d.setDate(d.getDate() + ${n}); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })()`);
+  const before = await ev(`document.querySelector('#daysOut').textContent`);
+  const [d2, d5, d20] = [await iso(2), await iso(5), await iso(20)];
+  await click('#datePick');
+  assert(await waitFor(`!!document.querySelector('.cal-day.is-start')`), 'calendar did not open');
+  await click(`[data-cal="${d2}"]`); // วันไปใหม่
+  const waiting = await ev(`JSON.stringify({ hint: document.querySelector('.cal-hint').textContent, far: document.querySelector('[data-cal="${d20}"]')?.disabled ?? 'not shown' })`).then(JSON.parse);
+  await click(`[data-cal="${d5}"]`); // วันกลับ
+  const r = await ev(`JSON.stringify({ range: document.querySelectorAll('.cal-day.in-range').length, start: document.querySelector('.cal-day.is-start').dataset.cal, end: document.querySelector('.cal-day.is-end').dataset.cal, hint: document.querySelector('.cal-hint').textContent })`).then(JSON.parse);
+  await click('[data-calok]');
+  assert(await waitFor(`document.querySelector('#sheet').hidden`), 'calendar did not close');
+  const after = await ev(`JSON.stringify({ start: document.querySelector('#startDate').value, out: document.querySelector('#daysOut').textContent })`).then(JSON.parse);
+  assert(/วันกลับ/.test(waiting.hint) && waiting.far !== false, 'return date over 10 days should be disabled: ' + JSON.stringify(waiting));
+  assert(r.start === d2 && r.end === d5 && r.range === 2 && r.hint.includes('4 วัน 3 คืน'), JSON.stringify(r));
+  assert(after.start === d2 && after.out.startsWith('4 วัน 3 คืน'), JSON.stringify(after));
+  // แตะวันเดียวกันสองครั้ง = ไปเช้าเย็นกลับ · ยกเลิก = ไม่เปลี่ยน
+  await click('#datePick');
+  await waitFor(`!!document.querySelector('.cal-day.is-start')`);
+  await click(`[data-cal="${d2}"]`); await click(`[data-cal="${d2}"]`);
+  await click('[data-calok]');
+  const oneDay = await ev(`document.querySelector('#daysOut').textContent`);
+  await click('#datePick');
+  await waitFor(`!!document.querySelector('.cal-day.is-start')`);
+  await click(`[data-cal="${d5}"]`);
+  await click('#sheet [data-close].btn');
+  const unchanged = await ev(`document.querySelector('#daysOut').textContent`);
+  assert(oneDay.includes('ไปเช้าเย็นกลับ') && unchanged === oneDay, JSON.stringify({ oneDay, unchanged }));
+  // คืนค่าเดิม (ทริป 2 วัน) ให้เทสถัดไป
+  await ev(`(() => { const e = document.querySelector('#endDate'); const d = new Date(document.querySelector('#startDate').value + 'T00:00'); d.setDate(d.getDate() + 1); e.value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  return `${before} → ${after.out}`;
 });
 await test('Bangkok disables the travel-from-Bangkok toggle', async () => {
   await click('[data-prov="bangkok"]');

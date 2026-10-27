@@ -164,7 +164,11 @@ const food = (mealCap) => P.summarize(P.plan({ province: 'phuket', days: 3, peop
 check('meal cap lowers food cost', food(120) < food(0), `${food(120)} vs ${food(0)}`);
 const meals = allNames(P.plan({ province: 'phuket', days: 3, people: 2, budget: 80000, mealCap: 120 })).filter((i) => i.kind === 'meal').reduce((a, i) => a + i.cost, 0);
 check('meal cap: meals ≤ 3 × cap per person per day', meals <= 3 * 2 * 120 * 3, String(meals));
-check('invalid meal cap ignored', P.plan({ province: 'nan', days: 1, people: 1, budget: 5000, mealCap: 77 }).input.mealCap === 0);
+check('meal cap is clamped', P.plan({ province: 'nan', days: 1, people: 1, budget: 5000, mealCap: -5 }).input.mealCap === 0 && P.plan({ province: 'nan', days: 1, people: 1, budget: 5000, mealCap: 1e9 }).input.mealCap === 10000);
+
+// ---------- ราคาที่พักที่กำหนดเอง ----------
+const stay = P.plan({ province: 'nan', days: 3, people: 3, budget: 50000, lodgingRate: 1234 });
+check('custom lodging rate used per room per night', stay.days.flatMap((d) => d.items).filter((i) => i.kind === 'lodging').every((i) => i.cost === 2 * 1234 && i.zone));
 
 console.log(`${combos} plan combinations generated`);
 if (fails.length) {

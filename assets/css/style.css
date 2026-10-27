@@ -1019,3 +1019,59 @@ body, button, input, select, textarea, .leaflet-container, .leaflet-popup-conten
   .backup-actions .btn { flex: 1; }
 }
 @media print { .backup, .skip-link { display: none !important; } }
+
+/* วันเดินทางแบบปฏิทิน: วันไป → วันกลับ แล้วแสดงจำนวนวัน/คืน */
+.trip-row { grid-template-columns: minmax(0, 1fr); }
+.date-box.range { grid-column: auto; flex-wrap: wrap; }
+.range-fields { flex: 1 1 300px; display: flex; align-items: flex-end; gap: 10px; min-width: 0; }
+.d-field { flex: 1; display: grid; gap: 4px; min-width: 0; }
+.d-field small { color: #64748B; font-size: 12.5px; font-weight: 600; }
+.d-field small em { font-style: normal; font-weight: 400; }
+.range-sum { display: grid; justify-items: center; flex: none; min-width: 112px; padding: 8px 14px; border-radius: 14px; background: #FFF7ED; border: 1px solid #FED7AA; color: #9A3412; font-size: 13px; text-align: center; }
+.range-sum b { font-size: 20px; line-height: 1.2; color: #C2410C; }
+.range-sum small { color: #9A3412; font-size: 11.5px; }
+@media (max-width: 900px) {
+  .trip-row { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 719px) {
+  .range-fields { flex-basis: 100%; order: 3; }
+  .range-sum { margin-left: auto; }
+}
+
+/* การ์ดวันเดินทาง (ปุ่มเปิดปฏิทิน) */
+button.date-box.range { width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color .2s, box-shadow .2s; }
+button.date-box.range:hover { border-color: #FDBA74; box-shadow: 0 10px 24px -16px rgba(249, 115, 22, .6); }
+.range-fields { align-items: center; }
+.d-field { padding: 8px 12px; border-radius: 12px; border: 1.5px solid #E2E8F0; background: #fff; }
+.d-field b { font-size: 15.5px; font-weight: 700; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.range-arrow { padding-bottom: 0; color: #64748B; }
+
+/* ปฏิทินเลือกช่วงวัน */
+.cal-status { display: flex; align-items: center; gap: 10px; color: #64748B; }
+.cal-pick { flex: 1; display: grid; padding: 8px 12px; border-radius: 14px; border: 1.5px solid #E2E8F0; background: #F8FAFC; min-width: 0; }
+.cal-pick small { color: #64748B; font-size: 12.5px; font-weight: 600; }
+.cal-pick b { font-size: 15px; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-pick.on { border-color: var(--coral); background: #FFF7ED; box-shadow: 0 0 0 4px rgba(249, 115, 22, .12); }
+.cal-hint { margin: 10px 0 4px; color: #475569; font-size: 14px; min-height: 1.6em; }
+.cal-hint b { color: #C2410C; }
+.cal-wrap { position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: start; margin: 6px 0 14px; }
+.cal-wrap .icon-btn { margin-top: 2px; font-size: 20px; }
+.cal-wrap .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+.cal-months { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; }
+.cal-month h3 { margin: 6px 0 10px; text-align: center; font-size: 16px; font-weight: 700; color: #0F172A; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 4px; }
+.cal-dow { padding-bottom: 4px; text-align: center; color: #64748B; font-size: 12.5px; font-weight: 600; }
+.cal-day { position: relative; height: 40px; border: 0; background: transparent; color: #0F172A; font: 600 15px var(--body); border-radius: 0; transition: background .15s; }
+.cal-day:hover:not(:disabled) { background: #FFEDD5; border-radius: 10px; }
+.cal-day:disabled { color: #CBD5E1; cursor: not-allowed; }
+.cal-day.is-today::after { content: ""; position: absolute; left: 50%; bottom: 5px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: #C2410C; }
+.cal-day.in-range, .cal-day.preview { background: #FFEDD5; color: #9A3412; }
+.cal-day.is-start, .cal-day.is-end { background: var(--grad-strong); color: #fff; border-radius: 10px; box-shadow: 0 6px 14px -8px rgba(194, 65, 12, .8); }
+.cal-day.is-start.is-today::after, .cal-day.is-end.is-today::after { background: #fff; }
+.cal-day:focus-visible { outline: 3px solid #C2410C; outline-offset: 1px; border-radius: 10px; z-index: 1; }
+#sheet .sheet-panel:has(.cal-months) { max-width: 680px; }
+@media (max-width: 719px) {
+  .d-field { padding: 6px 10px; }
+  .d-field b { font-size: 14px; }
+  .cal-day { height: 44px; }
+}
