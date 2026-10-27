@@ -27,7 +27,7 @@
   const loadPlans = () => { const v = store.get(KEYS.plans, {}); return v && typeof v === 'object' ? v : {}; };
   const savedList = () => Object.values(loadPlans()).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 
-  const DEFAULT_FORM = { province: 'chiangmai', budget: 8000, days: 3, people: 2, styles: ['nature', 'cafe'], includeTravel: false, startDate: null, mode: 'auto', needs: [], mealCap: 0 };
+  const DEFAULT_FORM = { province: 'chiangmai', budget: 8000, days: 3, people: 2, styles: ['nature', 'cafe'], includeTravel: false, startDate: null, mode: 'auto', needs: [], mealCap: 0, lodgingRate: 0 };
   const state = {
     form: { ...DEFAULT_FORM, ...(store.get(KEYS.form, {}) || {}) },
     plan: null, map: null, pickerMap: null, layers: null, markers: {}, mapDay: 'all', showNearby: true, undo: null
@@ -409,6 +409,8 @@
               <h3 class="sub-title">ข้อจำกัดของผู้ร่วมทริป <small>(ถ้ามี)</small></h3>
               <div class="chips" role="group" aria-label="ข้อจำกัดของผู้ร่วมทริป">${D.NEEDS.map((n) => `<button type="button" class="chip" data-need="${n.id}" aria-pressed="${(f.needs || []).includes(n.id)}"><span class="em" aria-hidden="true">${n.icon}</span>${esc(n.label)}</button>`).join('')}</div>
               <label class="meal-cap"><span>🍽️ งบอาหารต่อคนต่อมื้อ</span><select id="mealCap">${D.MEAL_CAPS.map((v) => `<option value="${v}" ${Number(f.mealCap) === v ? 'selected' : ''}>${v ? `ไม่เกิน ${baht(v)}` : 'ไม่จำกัด (ตามระดับงบ)'}</option>`).join('')}</select></label>
+              <label class="meal-cap"><span>🛏️ ที่พักต่อห้อง/คืน (ห้องละ 2 คน)</span><input id="lodgingRate" type="number" inputmode="numeric" min="0" max="100000" step="100" value="${Number(f.lodgingRate) || ''}" placeholder="ตามระดับที่พักที่แนะนำ" aria-describedby="lodgingHint"></label>
+              <p class="sub-note" id="lodgingHint">เว้นว่างหรือใส่ 0 เพื่อใช้ราคาตัวอย่างตามระดับงบ · ราคาจริงเปลี่ยนตามวันและฤดูกาล</p>
               <p class="sub-note" id="needsNote"></p>
             </div>
           </section>
@@ -555,6 +557,7 @@
       if (mode) { f.mode = mode.dataset.mode; syncHome(); }
     });
     $('#mealCap').addEventListener('change', (e) => { state.form.mealCap = Number(e.target.value) || 0; syncHome(); });
+    $('#lodgingRate').addEventListener('input', (e) => { state.form.lodgingRate = Math.min(100000, Math.max(0, Number(e.target.value) || 0)); syncHome(); });
     $('#budget').addEventListener('input', (e) => {
       const digits = e.target.value.replace(/[^\d]/g, '').slice(0, 8);
       state.form.budget = Number(digits) || 0;
@@ -659,6 +662,16 @@
           </section>
         </div>
         <section class="card nearby-card" id="nearby"></section>
+        <section class="card checklist-card" aria-labelledby="checklistTitle">
+          <div class="card-title"><h2 id="checklistTitle">✅ เช็กลิสต์ก่อนออกเดินทาง</h2><span class="est-tag">คำแนะนำ · โปรดยืนยันกับผู้ให้บริการ</span></div>
+          <div class="checklist">
+            <label><input type="checkbox"><span>ตรวจพยากรณ์อากาศและประกาศเตือนภัยใกล้วันเดินทาง <a href="https://www.tmd.go.th/" target="_blank" rel="noopener">กรมอุตุนิยมวิทยา ↗</a></span></label>
+            <label><input type="checkbox"><span>ยืนยันเวลาเปิด วันหยุด ค่าเข้า และข้อจำกัดการเข้าชมกับสถานที่โดยตรง <a href="https://www.google.com/search?q=${encodeURIComponent(p.full + ' สถานที่ท่องเที่ยว เว็บไซต์ทางการ') }" target="_blank" rel="noopener">ค้นหาเว็บไซต์สถานที่ ↗</a></span></label>
+            <label><input type="checkbox"><span>จองที่พักและการเดินทางล่วงหน้า โดยเฉพาะวันหยุดและช่วงเทศกาล</span></label>
+            <label><input type="checkbox"><span>เตรียมบัตรประชาชน ยาประจำตัว เงินสด/ช่องทางชำระเงิน และเบอร์ติดต่อฉุกเฉิน</span></label>
+            <label><input type="checkbox"><span>ตรวจเส้นทางจริง เวลารถ และเงื่อนไขยกเลิกกับผู้ให้บริการก่อนออกเดินทาง</span></label>
+          </div>
+        </section>
         <nav class="day-nav" id="dayNav" aria-label="ไปยังวัน"></nav>
         <div id="days"></div>
         <div class="disclaimer"><span>⚠️</span><span>ราคา ค่าเข้าชม เวลาเดินทาง และตำแหน่งบนแผนที่ทั้งหมดเป็น <b>ค่าประมาณจากข้อมูลตัวอย่าง</b> (ปรับปรุง ${esc(D.UPDATED)}) ไม่ใช่ข้อมูลสด กรุณาตรวจสอบราคาและเวลาเปิด-ปิดกับแหล่งข้อมูลทางการก่อนเดินทาง</span></div>

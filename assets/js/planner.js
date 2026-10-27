@@ -120,7 +120,8 @@
     const { days, people, includeTravel } = input;
     const nights = Math.max(0, days - 1);
     const rooms = Math.ceil(people / 2);
-    const lodging = nights * rooms * p.costs.lodging[tier];
+    const lodgingRate = input.lodgingRate || p.costs.lodging[tier];
+    const lodging = nights * rooms * lodgingRate;
     const food = days * people * foodPerPerson(p, tier, input);
     const trip = includeTravel ? tripCost(p, tier, input).cost : 0;
     const transport = days * localCost(p, tier, input) + trip;
@@ -290,7 +291,8 @@
 
     if (d < days - 1) {
       const rooms = Math.ceil(people / 2);
-      add({ kind: 'lodging', cat: 'lodging', icon: '🛏️', ll: p.center || null, zone: center, zoneLabel: zoneName(p, center), name: `ที่พัก: ${T.lodging} (${zoneName(p, center)})`, time: fmtTime(Math.min(Math.max(dinnerAt + 75, 20 * 60 + 30), 22 * 60 + 30)), cost: rooms * p.costs.lodging[tier], travel: legMins(p, here, hotel, mode), km: km(here, hotel), note: `${rooms} ห้อง × ${p.costs.lodging[tier].toLocaleString('th-TH')} บาท/คืน (ห้องละ 2 คน)` });
+      const lodgingRate = input.lodgingRate || p.costs.lodging[tier];
+      add({ kind: 'lodging', cat: 'lodging', icon: '🛏️', ll: p.center || null, zone, zoneLabel: zoneName(p, center), name: `ที่พัก: ${T.lodging} (${zoneName(p, center)})`, time: fmtTime(Math.min(Math.max(dinnerAt + 75, 20 * 60 + 30), 22 * 60 + 30)), cost: rooms * lodgingRate, travel: legMins(p, here, hotel, mode), km: km(here, hotel), note: `${rooms} ห้อง × ${lodgingRate.toLocaleString('th-TH')} บาท/คืน (ห้องละ 2 คน)` });
     }
     // ขับรถเอง/เช่ารถ: คิดค่าน้ำมันจากระยะทางจริงของวันนั้น (รวมขากลับจากทริปเต็มวัน)
     if (mode === 'drive' || mode === 'rent') {
@@ -319,7 +321,8 @@
       startDate: /^\d{4}-\d{2}-\d{2}$/.test(input.startDate || '') ? input.startDate : '',
       mode: D().MODES.some((m) => m.id === input.mode) ? input.mode : 'auto',
       needs: Array.isArray(input.needs) ? [...new Set(input.needs.filter((n) => D().NEEDS.some((x) => x.id === n)))] : [],
-      mealCap: D().MEAL_CAPS.includes(Number(input.mealCap)) ? Number(input.mealCap) : 0
+      mealCap: clamp(input.mealCap, 0, 10000),
+      lodgingRate: clamp(input.lodgingRate, 0, 100000)
     };
   }
 
